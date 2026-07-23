@@ -1,4 +1,4 @@
-# VMOS 4.7 — Virtual Machine Shell
+## VMOS 4.7 — Virtual Machine Shell
 
 A single-file, single-page fake retro OS. Boots like a late-90s VM-BIOS, drops you into a green-phosphor CRT desktop with a real window manager, and lets you poke around a simulated filesystem, terminal, text editor, image viewer, and a couple of built-in apps, including one that makes genuine live web requests.
 
