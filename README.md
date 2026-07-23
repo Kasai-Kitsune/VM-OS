@@ -8,7 +8,7 @@ No build step, no dependencies, no backend. Open the HTML file in a browser and 
 
 ## What it actually is
 
-This is a UI toy, not a real OS and not a real VM. Everything framed as "hardware," "BIOS," "kernel," or "host bridge" is flavor text rendered in HTML/CSS/JS. There is no sandboxing, no virtualization, no privilege model—it's a div wearing a trenchcoat.
+This is a UI toy, not a real OS and not a real VM. Everything framed as "hardware," "BIOS," "kernel," or "host bridge" is flavor text rendered in HTML/CSS/JS. There is no sandboxing, no virtualization, no privilege model; it's a div wearing a trenchcoat.
 
 That said, a couple of things in here are real:
 
