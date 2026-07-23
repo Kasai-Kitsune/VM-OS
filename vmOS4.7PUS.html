@@ -1,0 +1,2186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VMOS 4.7 — Virtual Machine Shell</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+/* =========================================================
+   VMOS 4.7  —  Retro CRT / Old-Windows-ish Desktop
+   ========================================================= */
+
+:root{
+  --bg:            #0a1a0a;
+  --scr:           #071307;
+  --fg:            #7dff7d;
+  --fg-dim:        #3fa93f;
+  --fg-bright:     #b6ffb6;
+  --accent:        #7dff7d;
+  --shadow:        #033603;
+  --panel:         #0e2a0e;
+  --panel-hi:      #164116;
+  --panel-lo:      #051805;
+  --bevel-hi:      #2fbe2f;
+  --bevel-lo:      #031e03;
+  --title-a:       #7dff7d;
+  --title-b:       #1b641b;
+  --title-fg:      #071307;
+  --danger:        #ff5c5c;
+  --warn:          #ffd76b;
+  --link:          #b6ffff;
+  --font-mono:     'VT323','Courier New',ui-monospace,monospace;
+  --font-ui:       'VT323','Courier New',ui-monospace,monospace;
+  --scanline-a:    rgba(0,0,0,0.35);
+  --scanline-b:    rgba(0,0,0,0);
+  --grid-lines:    rgba(80,255,80,0.05);
+}
+
+/* -------- Theme variants -------- */
+body[data-theme="amber"]{
+  --bg:#1a0e02; --scr:#170a01; --fg:#ffbf5a; --fg-dim:#a8792f; --fg-bright:#ffe1a0;
+  --accent:#ffbf5a; --shadow:#3a2100; --panel:#2a1a03; --panel-hi:#412705;
+  --panel-lo:#150a01; --bevel-hi:#c0842a; --bevel-lo:#180d02;
+  --title-a:#ffbf5a; --title-b:#5a3a05; --title-fg:#170a01; --link:#fff2c8;
+  --grid-lines:rgba(255,190,80,0.05);
+}
+body[data-theme="ice"]{
+  --bg:#04121e; --scr:#03101a; --fg:#8fd8ff; --fg-dim:#3f7ba9; --fg-bright:#d0ecff;
+  --accent:#8fd8ff; --shadow:#031f34; --panel:#0a2036; --panel-hi:#0f3050;
+  --panel-lo:#031421; --bevel-hi:#3f8bbe; --bevel-lo:#031423;
+  --title-a:#8fd8ff; --title-b:#123a58; --title-fg:#03101a; --link:#c8f4ff;
+  --grid-lines:rgba(120,200,255,0.05);
+}
+body[data-theme="mono"]{
+  --bg:#111; --scr:#0b0b0b; --fg:#e0e0e0; --fg-dim:#8a8a8a; --fg-bright:#ffffff;
+  --accent:#e0e0e0; --shadow:#000; --panel:#1a1a1a; --panel-hi:#2c2c2c;
+  --panel-lo:#0a0a0a; --bevel-hi:#8a8a8a; --bevel-lo:#000000;
+  --title-a:#e0e0e0; --title-b:#333; --title-fg:#0b0b0b; --link:#c8c8ff;
+  --grid-lines:rgba(255,255,255,0.05);
+}
+body[data-theme="magenta"]{
+  --bg:#150318; --scr:#0f0212; --fg:#ff8bff; --fg-dim:#a83fa8; --fg-bright:#ffd4ff;
+  --accent:#ff8bff; --shadow:#360036; --panel:#280228; --panel-hi:#3a053a;
+  --panel-lo:#100210; --bevel-hi:#c02fc0; --bevel-lo:#180318;
+  --title-a:#ff8bff; --title-b:#5a0a5a; --title-fg:#0f0212; --link:#c8c8ff;
+  --grid-lines:rgba(255,120,255,0.05);
+}
+
+/* -------- Global -------- */
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#000;font-family:var(--font-ui);color:var(--fg)}
+body{
+  font-size:18px;
+  line-height:1.15;
+  image-rendering:pixelated;
+  -webkit-font-smoothing:none;
+  user-select:none;
+  cursor:default;
+}
+@font-face{
+  font-family:'VT323';
+  src: local('VT323');
+  font-display:swap;
+}
+
+/* -------- CRT wrapper -------- */
+#crt{
+  position:fixed; inset:0;
+  background:
+    radial-gradient(ellipse at center, rgba(0,0,0,0) 40%, rgba(0,0,0,0.55) 100%),
+    var(--bg);
+  overflow:hidden;
+  perspective:1200px;
+}
+#crt::before{
+  content:""; position:absolute; inset:0; pointer-events:none; z-index:9999;
+  background:repeating-linear-gradient(to bottom,
+    var(--scanline-a) 0px, var(--scanline-a) 1px,
+    var(--scanline-b) 1px, var(--scanline-b) 3px);
+  mix-blend-mode:multiply;
+  animation:crtRoll 8s linear infinite;
+}
+#crt::after{
+  content:""; position:absolute; inset:0; pointer-events:none; z-index:9998;
+  background:radial-gradient(ellipse at center, rgba(255,255,255,0.02), rgba(0,0,0,0.35));
+  animation:crtFlicker 0.15s steps(2) infinite;
+}
+@keyframes crtRoll{ 0%{background-position:0 0} 100%{background-position:0 100px} }
+@keyframes crtFlicker{ 0%{opacity:0.85} 50%{opacity:1} 100%{opacity:0.9} }
+
+.screen{
+  position:absolute; inset:0;
+  background:var(--scr);
+  box-shadow: inset 0 0 120px rgba(0,0,0,0.8), inset 0 0 20px rgba(0,0,0,0.6);
+}
+
+/* -------- BOOT / POST -------- */
+#boot{
+  position:absolute; inset:0; padding:24px 36px;
+  color:var(--fg-bright); font-family:var(--font-mono);
+  white-space:pre-wrap; overflow:hidden;
+  text-shadow:0 0 6px var(--fg);
+  z-index:50;
+}
+#boot .cursor{ background:var(--fg); color:var(--scr); animation:blink 1s steps(2) infinite }
+@keyframes blink{ 50%{opacity:0} }
+
+/* -------- Desktop -------- */
+#desktop{
+  position:absolute; inset:0;
+  display:none;
+  background:
+    linear-gradient(var(--grid-lines) 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(90deg, var(--grid-lines) 1px, transparent 1px) 0 0 / 32px 32px,
+    radial-gradient(ellipse at 20% 20%, rgba(125,255,125,0.06), transparent 60%),
+    var(--scr);
+  overflow:hidden;
+}
+#desktop.on{ display:block }
+
+#icons{
+  position:absolute; inset:8px 8px 40px 8px;
+  display:grid;
+  grid-template-columns: repeat(auto-fill, 96px);
+  grid-auto-rows: 96px;
+  gap:8px;
+  align-content:start;
+}
+.icon{
+  width:96px; height:96px; padding:6px 4px 4px;
+  display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+  gap:4px; cursor:pointer;
+  color:var(--fg-bright);
+  text-shadow: 0 0 6px var(--fg);
+  border:1px dashed transparent;
+}
+.icon.selected{ border-color:var(--fg-dim); background:rgba(125,255,125,0.08) }
+.icon .glyph{
+  width:48px; height:48px; display:grid; place-items:center;
+  border:2px solid var(--fg);
+  background:var(--panel);
+  box-shadow: inset -2px -2px 0 var(--bevel-lo), inset 2px 2px 0 var(--bevel-hi);
+  font-size:26px;
+}
+.icon .label{
+  font-size:16px; text-align:center; max-width:88px;
+  line-height:1.05; word-break:break-word;
+  padding:1px 3px;
+}
+
+/* -------- Taskbar / Start Menu -------- */
+#taskbar{
+  position:absolute; left:0; right:0; bottom:0; height:32px;
+  background:var(--panel);
+  border-top:2px solid var(--bevel-hi);
+  box-shadow: inset 0 -2px 0 var(--bevel-lo);
+  display:flex; align-items:center; gap:4px; padding:2px 4px;
+  z-index:1000;
+}
+#startBtn{
+  height:26px; padding:0 10px;
+  background:var(--panel-hi);
+  color:var(--fg-bright);
+  border:none;
+  box-shadow: inset -1px -1px 0 var(--bevel-lo), inset 1px 1px 0 var(--bevel-hi);
+  font-family:var(--font-ui); font-size:18px; cursor:pointer;
+  display:flex; align-items:center; gap:6px;
+}
+#startBtn:active,#startBtn.open{ box-shadow: inset 1px 1px 0 var(--bevel-lo), inset -1px -1px 0 var(--bevel-hi) }
+#startBtn .sq{ display:inline-block; width:12px; height:12px; background:var(--fg); box-shadow: 4px 0 0 var(--scr), 0 4px 0 var(--scr), 4px 4px 0 var(--scr) }
+#tasks{ flex:1; display:flex; gap:4px; overflow:hidden; padding:0 4px }
+.task{
+  height:26px; padding:0 8px; max-width:180px;
+  background:var(--panel-hi); color:var(--fg-bright);
+  border:none; font-family:var(--font-ui); font-size:16px; cursor:pointer;
+  box-shadow: inset -1px -1px 0 var(--bevel-lo), inset 1px 1px 0 var(--bevel-hi);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.task.active{ box-shadow: inset 1px 1px 0 var(--bevel-lo), inset -1px -1px 0 var(--bevel-hi); background:var(--panel-lo) }
+
+#tray{
+  height:26px; padding:0 8px;
+  background:var(--panel-lo);
+  box-shadow: inset 1px 1px 0 var(--bevel-lo), inset -1px -1px 0 var(--bevel-hi);
+  display:flex; align-items:center; gap:8px;
+  color:var(--fg-bright); font-size:16px;
+}
+#tray .led{ display:inline-block; width:8px; height:8px; background:var(--fg); box-shadow:0 0 6px var(--fg); animation: blink 2s steps(2) infinite }
+
+#startMenu{
+  position:absolute; left:4px; bottom:34px; width:260px;
+  background:var(--panel);
+  border:2px solid var(--fg-dim);
+  box-shadow: inset -1px -1px 0 var(--bevel-lo), inset 1px 1px 0 var(--bevel-hi), 4px 4px 0 rgba(0,0,0,0.6);
+  padding:6px;
+  z-index:1500;
+  display:none;
+  font-size:18px;
+}
+#startMenu.open{ display:block }
+#startMenu .sm-header{
+  background:linear-gradient(90deg, var(--title-a), var(--title-b));
+  color:var(--title-fg); padding:4px 8px; margin:-6px -6px 6px -6px; font-weight:bold; letter-spacing:1px;
+}
+#startMenu .sm-item{ padding:6px 8px; cursor:pointer; display:flex; align-items:center; gap:10px }
+#startMenu .sm-item:hover{ background:var(--title-b); color:var(--title-fg) }
+#startMenu .sm-sep{ height:2px; background:var(--bevel-lo); margin:4px 0; box-shadow:0 1px 0 var(--bevel-hi) }
+#startMenu .sm-item .g{ width:20px; text-align:center }
+
+/* -------- Windows -------- */
+.win{
+  position:absolute;
+  min-width:240px; min-height:120px;
+  background:var(--panel);
+  border:2px solid var(--fg-dim);
+  box-shadow: inset -1px -1px 0 var(--bevel-lo), inset 1px 1px 0 var(--bevel-hi), 6px 6px 0 rgba(0,0,0,0.55);
+  display:flex; flex-direction:column;
+  color:var(--fg-bright);
+  z-index:100;
+}
+.win.max{ inset:0 0 32px 0 !important; width:auto !important; height:auto !important; box-shadow:none }
+.win .titlebar{
+  height:24px;
+  background:linear-gradient(90deg, var(--title-a), var(--title-b));
+  color:var(--title-fg);
+  display:flex; align-items:center; padding:0 4px;
+  cursor:move; user-select:none;
+  font-weight:bold; letter-spacing:1px;
+}
+.win.inactive .titlebar{ background:linear-gradient(90deg, var(--panel-hi), var(--panel-lo)); color:var(--fg-dim) }
+.win .titlebar .t-icon{ margin-right:6px }
+.win .titlebar .t-title{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:16px }
+.win .titlebar .t-btns{ display:flex; gap:2px }
+.win .titlebar button{
+  width:22px; height:18px; background:var(--panel); color:var(--fg-bright); border:none;
+  box-shadow: inset -1px -1px 0 var(--bevel-lo), inset 1px 1px 0 var(--bevel-hi);
+  font-family:var(--font-ui); font-size:14px; cursor:pointer; padding:0;
+  display:grid; place-items:center;
+}
+.win .titlebar button:active{ box-shadow: inset 1px 1px 0 var(--bevel-lo), inset -1px -1px 0 var(--bevel-hi) }
+.win .menubar{
+  display:flex; gap:0; background:var(--panel-hi); border-bottom:1px solid var(--bevel-lo);
+  font-size:16px;
+}
+.win .menubar .mi{ padding:2px 10px; cursor:pointer }
+.win .menubar .mi:hover{ background:var(--title-b); color:var(--title-fg) }
+.win .body{ flex:1; overflow:auto; background:var(--panel-lo); position:relative }
+.win .statusbar{
+  height:20px; background:var(--panel-hi); border-top:1px solid var(--bevel-lo);
+  padding:0 6px; display:flex; align-items:center; gap:12px;
+  font-size:14px; color:var(--fg-bright);
+}
+.win .resize{
+  position:absolute; right:0; bottom:0; width:14px; height:14px;
+  cursor:nwse-resize;
+  background:
+    linear-gradient(135deg, transparent 60%, var(--fg-dim) 60% 70%, transparent 70% 75%, var(--fg-dim) 75% 85%, transparent 85% 90%, var(--fg-dim) 90%);
+}
+
+/* -------- Terminal app -------- */
+.term{
+  padding:8px 10px; height:100%; overflow:auto;
+  background:var(--scr); color:var(--fg-bright);
+  font-family:var(--font-mono); font-size:18px;
+  text-shadow:0 0 6px var(--fg);
+  white-space:pre-wrap; word-break:break-word;
+}
+.term .line{ padding:0 }
+.term .prompt{ color:var(--fg) }
+.term .in{ background:transparent; border:none; color:var(--fg-bright); font-family:inherit; font-size:inherit; outline:none; width:80%; caret-color:var(--fg) }
+.term a{ color:var(--link); text-decoration:underline }
+
+/* -------- File Explorer -------- */
+.expl{ display:grid; grid-template-columns: 180px 1fr; height:100%; background:var(--panel-lo) }
+.expl .side{ border-right:1px solid var(--bevel-lo); background:var(--panel); overflow:auto; padding:4px 0 }
+.expl .side .tn{ padding:2px 8px; cursor:pointer; font-size:16px }
+.expl .side .tn.sel{ background:var(--title-b); color:var(--title-fg) }
+.expl .side .tn .ch{ display:inline-block; width:14px }
+.expl .files{ overflow:auto; padding:6px; align-content:start;
+  display:grid; grid-template-columns:repeat(auto-fill, 80px); grid-auto-rows:88px; gap:6px }
+.expl .f{
+  display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:2px;
+  padding:4px 2px; cursor:pointer; border:1px dashed transparent; color:var(--fg-bright);
+  text-align:center; font-size:14px; word-break:break-word; line-height:1.05;
+}
+.expl .f.sel{ border-color:var(--fg-dim); background:rgba(125,255,125,0.08) }
+.expl .f .g{
+  width:40px; height:40px; display:grid; place-items:center;
+  background:var(--panel); border:2px solid var(--fg-dim);
+  box-shadow: inset -2px -2px 0 var(--bevel-lo), inset 2px 2px 0 var(--bevel-hi);
+  font-size:22px; margin-bottom:2px;
+}
+
+/* -------- Context Menu -------- */
+.ctxmenu{
+  position:absolute; z-index:6000;
+  background:var(--panel);
+  border:2px solid var(--fg-dim);
+  box-shadow: inset -1px -1px 0 var(--bevel-lo), inset 1px 1px 0 var(--bevel-hi), 4px 4px 0 rgba(0,0,0,0.6);
+  padding:4px; min-width:160px;
+  font-family:var(--font-ui); font-size:16px;
+}
+.ctxmenu .ci{ padding:4px 10px; cursor:pointer; color:var(--fg-bright); display:flex; gap:8px; align-items:center }
+.ctxmenu .ci:hover{ background:var(--title-b); color:var(--title-fg) }
+.ctxmenu .ci.dis{ opacity:0.5; cursor:default }
+.ctxmenu .ci.dis:hover{ background:transparent; color:var(--fg-bright) }
+.ctxmenu .sep{ height:2px; background:var(--bevel-lo); margin:3px 0; box-shadow:0 1px 0 var(--bevel-hi) }
+.ctxmenu .ci .g{ width:16px; text-align:center }
+
+/* -------- Text viewer / editor -------- */
+.pad{
+  width:100%; height:100%; padding:8px;
+  background:var(--scr); color:var(--fg-bright);
+  border:none; outline:none; resize:none;
+  font-family:var(--font-mono); font-size:18px;
+  text-shadow:0 0 3px var(--fg);
+}
+
+/* -------- Image viewer -------- */
+.imgv{ width:100%; height:100%; background:
+  repeating-conic-gradient(var(--panel-lo) 0% 25%, var(--panel) 0% 50%) 50% 50% / 20px 20px;
+  display:grid; place-items:center; overflow:auto; padding:10px }
+.imgv img{ max-width:100%; max-height:100%; image-rendering:pixelated;
+  border:2px solid var(--fg-dim);
+  box-shadow: inset -1px -1px 0 var(--bevel-lo), inset 1px 1px 0 var(--bevel-hi), 4px 4px 0 rgba(0,0,0,0.6) }
+
+/* -------- Netlink -------- */
+.net{ display:flex; flex-direction:column; height:100% }
+.net .bar{
+  display:flex; gap:4px; padding:4px; background:var(--panel-hi);
+  border-bottom:1px solid var(--bevel-lo);
+}
+.net .bar input{
+  flex:1; background:var(--scr); color:var(--fg-bright); border:2px inset var(--bevel-lo);
+  padding:2px 6px; font-family:var(--font-ui); font-size:16px;
+}
+.net .bar button{
+  background:var(--panel); color:var(--fg-bright); border:none;
+  box-shadow: inset -1px -1px 0 var(--bevel-lo), inset 1px 1px 0 var(--bevel-hi);
+  padding:2px 8px; font-family:var(--font-ui); font-size:16px; cursor:pointer;
+}
+.net .bar button:active{ box-shadow: inset 1px 1px 0 var(--bevel-lo), inset -1px -1px 0 var(--bevel-hi) }
+.net .view{ flex:1; background:var(--scr); overflow:auto; padding:10px; font-size:18px; line-height:1.35 }
+.net .view h1,.net .view h2,.net .view h3{ color:var(--fg); text-shadow:0 0 6px var(--fg); margin:6px 0 }
+.net .view a{ color:var(--link); text-decoration:underline; cursor:pointer }
+.net .view .result{ border-bottom:1px dashed var(--bevel-lo); padding:6px 0 }
+.net .view .result .u{ color:var(--fg-dim); font-size:14px }
+.net iframe{ width:100%; height:100%; border:none; background:#fff }
+
+/* -------- Config -------- */
+.cfg{ padding:12px; height:100%; overflow:auto; font-size:18px }
+.cfg h2{ color:var(--fg); margin:6px 0; text-shadow:0 0 6px var(--fg) }
+.cfg .row{ display:flex; gap:10px; align-items:center; margin:6px 0; flex-wrap:wrap }
+.cfg .sw{
+  width:56px; height:56px; cursor:pointer;
+  border:2px solid var(--fg-dim);
+  box-shadow: inset -1px -1px 0 var(--bevel-lo), inset 1px 1px 0 var(--bevel-hi);
+  display:grid; place-items:center; font-size:14px;
+}
+.cfg .sw.sel{ outline:2px dashed var(--fg-bright); outline-offset:2px }
+.cfg button, .cfg select, .cfg input[type=range]{
+  background:var(--panel); color:var(--fg-bright); border:none; padding:4px 10px;
+  box-shadow: inset -1px -1px 0 var(--bevel-lo), inset 1px 1px 0 var(--bevel-hi);
+  font-family:var(--font-ui); font-size:16px; cursor:pointer;
+}
+
+/* -------- Modal -------- */
+.modal-back{
+  position:absolute; inset:0; background:rgba(0,0,0,0.45);
+  display:grid; place-items:center; z-index:5000;
+}
+.modal{
+  min-width:340px; max-width:520px;
+  background:var(--panel); color:var(--fg-bright);
+  border:2px solid var(--fg-dim);
+  box-shadow: inset -1px -1px 0 var(--bevel-lo), inset 1px 1px 0 var(--bevel-hi), 8px 8px 0 rgba(0,0,0,0.6);
+}
+.modal .h{
+  background:linear-gradient(90deg, var(--danger), #7a1414);
+  color:#fff; padding:4px 8px; font-weight:bold; letter-spacing:1px;
+}
+.modal.info .h{ background:linear-gradient(90deg, var(--title-a), var(--title-b)); color:var(--title-fg) }
+.modal .b{ padding:14px; font-size:18px; line-height:1.35 }
+.modal .b .sig{ color:var(--fg-dim); font-size:14px; margin-top:8px }
+.modal .f{ padding:8px; display:flex; justify-content:flex-end; gap:6px; background:var(--panel-hi) }
+.modal .f button{
+  background:var(--panel); color:var(--fg-bright); border:none; padding:4px 14px;
+  box-shadow: inset -1px -1px 0 var(--bevel-lo), inset 1px 1px 0 var(--bevel-hi);
+  font-family:var(--font-ui); font-size:16px; cursor:pointer;
+}
+.modal .f button:active{ box-shadow: inset 1px 1px 0 var(--bevel-lo), inset -1px -1px 0 var(--bevel-hi) }
+
+/* -------- Screensaver -------- */
+#saver{
+  position:absolute; inset:0; background:#000; z-index:8000; display:none;
+  color:var(--fg-bright); font-family:var(--font-mono); overflow:hidden;
+}
+#saver.on{ display:block }
+#saver canvas{ width:100%; height:100% }
+
+/* -------- Utilities -------- */
+.mono{ font-family:var(--font-mono) }
+.dim{ color:var(--fg-dim) }
+.bright{ color:var(--fg-bright); text-shadow:0 0 6px var(--fg) }
+.err{ color:var(--danger) }
+.warn{ color:var(--warn) }
+::selection{ background:var(--fg); color:var(--scr) }
+
+*::-webkit-scrollbar{ width:14px; height:14px }
+*::-webkit-scrollbar-track{ background:var(--panel-lo); box-shadow: inset 1px 1px 0 var(--bevel-lo) }
+*::-webkit-scrollbar-thumb{ background:var(--panel-hi); box-shadow: inset -1px -1px 0 var(--bevel-lo), inset 1px 1px 0 var(--bevel-hi) }
+*::-webkit-scrollbar-thumb:hover{ background:var(--fg-dim) }
+*::-webkit-scrollbar-corner{ background:var(--panel-lo) }
+
+body.noflick #crt::after{ animation:none !important }
+body.novign  #crt{ background: var(--bg) }
+body.nogrid  #desktop{ background: radial-gradient(ellipse at 20% 20%, rgba(125,255,125,0.06), transparent 60%), var(--scr) }
+</style>
+</head>
+<body data-theme="phosphor">
+<div id="crt">
+  <div class="screen"></div>
+  <div id="boot"></div>
+  <div id="desktop">
+    <div id="icons"></div>
+    <div id="windows"></div>
+    <div id="taskbar">
+      <button id="startBtn"><span class="sq"></span> MENU</button>
+      <div id="tasks"></div>
+      <div id="tray"><span class="led"></span><span id="netStatus">NET</span><span id="clock">--:--</span></div>
+    </div>
+    <div id="startMenu"></div>
+  </div>
+  <div id="saver"><canvas></canvas></div>
+</div>
+<script>
+"use strict";
+
+/* -------- Utilities -------- */
+const $  = (s,el=document)=>el.querySelector(s);
+const $$ = (s,el=document)=>[...el.querySelectorAll(s)];
+const el = (tag, cls, txt) => { const e=document.createElement(tag); if(cls) e.className=cls; if(txt!=null) e.textContent=txt; return e; };
+const esc = s => (s??"").toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+const nowStr = () => {
+  const d=new Date();
+  const hh=String(d.getHours()).padStart(2,'0');
+  const mm=String(d.getMinutes()).padStart(2,'0');
+  return `${hh}:${mm}`;
+};
+const uid = (()=>{ let n=0; return ()=>++n; })();
+
+/* -------- Fake audio -------- */
+let AC=null;
+function beep(freq=880, dur=0.05, type='square', gain=0.03){
+  try{
+    if(!AC) AC = new (window.AudioContext||window.webkitAudioContext)();
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.type=type; o.frequency.value=freq;
+    g.gain.value=gain;
+    o.connect(g); g.connect(AC.destination);
+    o.start(); o.stop(AC.currentTime+dur);
+  }catch(e){}
+}
+document.addEventListener('pointerdown', ()=>{ if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } }, {once:true});
+
+/* =========================================================
+   Virtual File System
+   ========================================================= */
+const VFS = {
+  root: {
+    type:'dir', name:'C:', children:{
+      'SYSTEM': { type:'dir', children:{
+        'KERNEL.VMSY': { type:'sys', size:181240, content:'[BINARY IMAGE - DO NOT MODIFY]\nSignature: VM-KRN-4.7.2.11\nCompiled: 07/22/1998 03:14\nProtected: SYSTEM' },
+        'BOOT.VMCFG':  { type:'txt', content:'; VMOS 4.7 boot configuration\nGRAPHICS=CRT\nMEMORY=640K+32M\nTHEME=phosphor\nAUTOEXEC=NETLINK.VMXE,DESKTOP.VMXE\n' },
+        'DRIVERS':     { type:'dir', children:{
+          'CRT.VMDRV':   { type:'sys', content:'CRT display driver v2.11 - sync 15.75kHz' },
+          'NET.VMDRV':   { type:'sys', content:'NET driver v4.02 - encapsulates external signal via host bridge' },
+          'AUDIO.VMDRV': { type:'sys', content:'AUDIO driver v1.30 - 1-op oscillator, 8-bit DAC (emulated)' },
+        }}
+      }},
+      'PROGRAMS': { type:'dir', children:{
+        'TERMINAL.VMXE': { type:'app', app:'terminal',  icon:'>_',  desc:'Command interpreter (VMSH)' },
+        'NOTEPAD.VMXE':  { type:'app', app:'notepad',   icon:'\u2261',  desc:'Text editor'                },
+        'EXPLORER.VMXE': { type:'app', app:'explorer',  icon:'\u25A4',  desc:'File explorer'              },
+        'NETLINK.VMXE':  { type:'app', app:'netlink',   icon:'@',  desc:'External signal browser'    },
+        'CONFIG.VMXE':   { type:'app', app:'config',    icon:'\u2731',  desc:'Display & system config'    },
+        'SYSINFO.VMXE':  { type:'app', app:'sysinfo',   icon:'i',  desc:'About this VM'              },
+        'PAINT.VMXE':    { type:'app', app:'paint',     icon:'\u270E',  desc:'Pixel doodle pad'           },
+        'MINES.VMXE':    { type:'app', app:'mines',     icon:'\u2731',  desc:'Small hazard game'          },
+      }},
+      'DOCS': { type:'dir', children:{
+        'README.VMTXT': { type:'txt', content:
+`VMOS 4.7 - VIRTUAL MACHINE SHELL
+==================================
+Welcome, operator.
+
+This is a self-contained retro shell running inside a browser
+sandbox. It is not connected to a physical machine and cannot
+harm the host. All file operations are simulated. External
+signals are routed through the host bridge with strict filters:
+
+  ALLOWED   : .txt .md .png .jpg .vmtxt (read/write, simulated)
+  QUARANTINE: everything else (blocked at gate)
+
+TIPS
+----
+ * Double-click any icon to launch.
+ * TERMINAL.VMXE responds to \`help\` for a command list.
+ * NETLINK.VMXE can fetch encyclopedia articles from the
+   outer network via a filtered bridge.
+ * CONFIG.VMXE lets you re-tune the phosphor and pixel size.
+ * Right-click in the EXPLORER for New/Delete/Rename.
+ * Any "downloads" are captured into C:\\DOWNLOADS and never
+   leave this virtual machine.
+
+The VM will never ask for host credentials. If prompted, refuse.
+` },
+        'CHANGELOG.VMTXT': { type:'txt', content:
+`VMOS CHANGELOG
+--------------
+4.7.3  Downloads now captured to C:\\DOWNLOADS (host isolation).
+       Explorer: context menu, delete key, rename, new items.
+       Desktop icons now reflect PROGRAMS/ contents live.
+4.7.2  Fixed phosphor bleed on amber theme.
+4.7.1  Improved NETLINK filter tables.
+4.7.0  New bridge protocol (host-side proxy).
+4.6.9  Added MINES.VMXE.
+4.6.5  Config panel unified with display driver.
+4.6.0  First public retail build.
+` },
+        'WELCOME.VMTXT': { type:'txt', content:
+`If you found this file, congratulations -
+you have full read access to the operator locker.
+
+There is nothing here except stories.
+And stories are the point.
+` }
+      }},
+      'MAIL':    { type:'dir', children:{
+        'INBOX.VMTXT': { type:'txt', content:
+`From: sysop@vmos.local
+To: user@vmos.local
+Subj: Welcome to VMOS 4.7
+
+Your account is provisioned. The bridge is up. Please avoid
+issuing 'sudo' style commands - this shell does not have a
+privilege ladder; it simply refuses.
+
+Have fun. If the screen curves in on you, that's the phosphor.
+It'll pass.
+` }
+      }},
+      'DOWNLOADS': { type:'dir', children:{} },
+      'TEMP':      { type:'dir', children:{} },
+    }
+  },
+  cwd: ['C:'],
+  listeners: new Set(),
+
+  onChange(fn){ this.listeners.add(fn); return ()=>this.listeners.delete(fn); },
+  notify(){ this.listeners.forEach(fn=>{ try{ fn(); }catch(e){} }); },
+
+  join(parts){ return parts.join('\\') },
+  parsePath(p){
+    if(!p) return null;
+    p = p.replace(/\//g,'\\');
+    let parts = p.split('\\').filter(Boolean);
+    if(!/^C:/i.test(parts[0])) parts = [...this.cwd, ...parts];
+    return parts;
+  },
+  resolve(parts){
+    if(!parts) return null;
+    let node = this.root;
+    if(parts[0].toUpperCase()!=='C:') return null;
+    for(let i=1;i<parts.length;i++){
+      const seg = parts[i];
+      if(seg==='..') continue;
+      if(!node.children) return null;
+      const key = Object.keys(node.children).find(k=>k.toLowerCase()===seg.toLowerCase());
+      if(!key) return null;
+      node = node.children[key];
+    }
+    return node;
+  },
+  ls(parts){
+    const node = this.resolve(parts);
+    if(!node || node.type!=='dir') return null;
+    return Object.entries(node.children).map(([n,v])=>({name:n, ...v}));
+  },
+  read(parts){
+    const node = this.resolve(parts);
+    if(!node) return null;
+    return node;
+  },
+  write(parts, content, opts={}){
+    if(!parts || parts.length<2) return {ok:false, reason:'invalid path'};
+    const parent = this.resolve(parts.slice(0,-1));
+    if(!parent || parent.type!=='dir') return {ok:false, reason:'parent not found'};
+    const name = parts[parts.length-1];
+    const key = Object.keys(parent.children).find(k=>k.toLowerCase()===name.toLowerCase());
+    const existing = key ? parent.children[key] : null;
+    if(existing && existing.type==='sys') return {ok:false, reason:'protected system object'};
+    if(existing && existing.type==='dir') return {ok:false, reason:'target is a directory'};
+    const type = opts.type || existing?.type || 'txt';
+    const useName = key || name;
+    parent.children[useName] = { type, content, ...(opts.extra||{}) };
+    this.notify();
+    return {ok:true, name:useName};
+  },
+  remove(parts){
+    if(!parts || parts.length<2) return {ok:false, reason:'invalid path'};
+    const parent = this.resolve(parts.slice(0,-1));
+    if(!parent || parent.type!=='dir') return {ok:false, reason:'parent not found'};
+    const key = Object.keys(parent.children).find(k=>k.toLowerCase()===parts[parts.length-1].toLowerCase());
+    if(!key) return {ok:false, reason:'not found'};
+    const node = parent.children[key];
+    if(node.type==='sys') return {ok:false, reason:'protected system object'};
+    if(parts.length===2 && key.toUpperCase()==='SYSTEM') return {ok:false, reason:'protected system directory'};
+    delete parent.children[key];
+    this.notify();
+    return {ok:true};
+  },
+  mkdir(parts){
+    if(!parts || parts.length<2) return {ok:false, reason:'invalid path'};
+    const parent = this.resolve(parts.slice(0,-1));
+    if(!parent || parent.type!=='dir') return {ok:false, reason:'parent not found'};
+    const name = parts[parts.length-1];
+    if(parent.children[name]) return {ok:false, reason:'already exists'};
+    parent.children[name] = { type:'dir', children:{} };
+    this.notify();
+    return {ok:true};
+  },
+  rename(parts, newName){
+    if(!parts || parts.length<2 || !newName) return {ok:false, reason:'invalid'};
+    const parent = this.resolve(parts.slice(0,-1));
+    if(!parent) return {ok:false, reason:'parent not found'};
+    const key = Object.keys(parent.children).find(k=>k.toLowerCase()===parts[parts.length-1].toLowerCase());
+    if(!key) return {ok:false, reason:'not found'};
+    if(parent.children[key].type==='sys') return {ok:false, reason:'protected system object'};
+    if(parent.children[newName] && newName.toLowerCase()!==key.toLowerCase()) return {ok:false, reason:'name already exists'};
+    parent.children[newName] = parent.children[key];
+    if(newName!==key) delete parent.children[key];
+    this.notify();
+    return {ok:true};
+  }
+};
+
+/* =========================================================
+   Boot sequence
+   ========================================================= */
+const BOOT_LINES = [
+  ["VM-BIOS 4.7.3  (c) 1996-1998 Virtual Fabrication Corp.", 40],
+  ["", 20],
+  ["Testing base memory ......... 640K OK", 200],
+  ["Testing extended memory ..... 32,768K OK", 200],
+  ["Initializing CRT driver ..... [OK]", 150],
+  ["Initializing NET bridge ..... [OK]", 150],
+  ["Initializing AUDIO driver ... [OK]", 100],
+  ["Scanning storage ............ C: 384MB (simulated)", 200],
+  ["", 40],
+  ["Loading KERNEL.VMSY .........", 250, "beep"],
+  ["  * subsystem: window manager  OK", 60],
+  ["  * subsystem: file system     OK", 60],
+  ["  * subsystem: shell           OK", 60],
+  ["  * subsystem: network bridge  OK", 60],
+  ["  * subsystem: host isolation  OK", 60],
+  ["", 30],
+  ["VMOS 4.7 - VIRTUAL MACHINE SHELL", 100],
+  ["Operator: local  |  Host: browser-sandbox", 40],
+  ["", 30],
+  ["Press any key to continue . . .", 0]
+];
+
+async function runBoot(){
+  const boot = $('#boot');
+  boot.innerHTML = '';
+  for(const item of BOOT_LINES){
+    const [text, delay, sfx] = item;
+    const line = el('div','line', text);
+    boot.appendChild(line);
+    if(sfx==='beep') beep(660,0.04);
+    boot.scrollTop = boot.scrollHeight;
+    await sleep(delay);
+  }
+  const cur = el('span','cursor',' ');
+  boot.appendChild(cur);
+  await new Promise(resolve=>{
+    const done = ()=>{ document.removeEventListener('keydown',done); document.removeEventListener('pointerdown',done); resolve(); };
+    document.addEventListener('keydown',done);
+    document.addEventListener('pointerdown',done);
+  });
+  beep(880,0.06); await sleep(60); beep(1320,0.08);
+  boot.innerHTML = '\nVMOS 4.7\n\nStarting up ...\n\n';
+  const bar = el('div','line','[                              ]');
+  boot.appendChild(bar);
+  for(let i=0;i<=30;i++){
+    bar.textContent = '[' + '\u2588'.repeat(i) + ' '.repeat(30-i) + ']';
+    await sleep(35);
+  }
+  await sleep(120);
+  boot.style.display='none';
+  $('#desktop').classList.add('on');
+  renderDesktop();
+  buildStartMenu();
+  VFS.onChange(()=>{ renderDesktop(); buildStartMenu(); });
+  startClock();
+  updateNetStatus();
+  showInfo('WELCOME','VMOS 4.7 initialized.\nDouble-click PROGRAMS on the desktop, or open TERMINAL.VMXE for a shell.\n\nType `help` in the terminal for commands.\nRight-click in EXPLORER for New / Delete / Rename.');
+}
+
+/* =========================================================
+   Desktop rendering (dynamic from VFS)
+   ========================================================= */
+function iconFor(name, type, extra){
+  if(extra?.icon) return extra.icon;
+  if(type==='dir'){
+    const up = name.toUpperCase();
+    if(up==='MAIL') return '\u2709';
+    if(up==='PROGRAMS') return '\u25A3';
+    if(up==='DOWNLOADS') return '\u21E9';
+    if(up==='TEMP') return '\u29B0';
+    if(up==='DOCS') return '\u25A4';
+    if(up==='SYSTEM') return '\u2699';
+    return '\u25A4';
+  }
+  if(type==='app') return '\u25A3';
+  if(type==='sys') return '\u2699';
+  if(type==='img') return '\u25A9';
+  if(/\.(vmtxt|vmmd|txt|md)$/i.test(name)) return '\u2261';
+  if(/\.(png|jpg|jpeg|bmp)$/i.test(name)) return '\u25A9';
+  return '\u2022';
+}
+
+function getDesktopItems(){
+  const items = [];
+  const rootList = VFS.ls(['C:']) || [];
+  for(const e of rootList){
+    if(e.type==='dir' && e.name.toUpperCase()!=='SYSTEM'){
+      items.push({name:e.name, icon:iconFor(e.name,'dir'), kind:'folder', path:['C:',e.name]});
+    }
+  }
+  const progs = VFS.ls(['C:','PROGRAMS']) || [];
+  for(const e of progs){
+    if(e.type==='app'){
+      items.push({name:e.name, icon:e.icon||'\u25A3', kind:'app', app:e.app});
+    }
+  }
+  items.push({name:'RECYCLE.BIN', icon:'\u2297', kind:'bin'});
+  return items;
+}
+
+function renderDesktop(){
+  const box = $('#icons');
+  if(!box) return;
+  box.innerHTML='';
+  for(const it of getDesktopItems()){
+    const d = el('div','icon');
+    d.innerHTML = `<div class="glyph">${esc(it.icon)}</div><div class="label">${esc(it.name)}</div>`;
+    d.tabIndex=0;
+    d.addEventListener('click', ()=>{
+      $$('.icon.selected').forEach(x=>x.classList.remove('selected'));
+      d.classList.add('selected');
+    });
+    d.addEventListener('dblclick', ()=>{
+      beep(1200,0.03);
+      if(it.kind==='folder') openApp('explorer',{path:it.path});
+      else if(it.kind==='app') openApp(it.app);
+      else if(it.kind==='bin') showInfo('RECYCLE','The recycle bin is empty.\n\n(This VM does not persist state.)');
+    });
+    d.addEventListener('contextmenu', e=>{
+      e.preventDefault(); e.stopPropagation();
+      const items = [
+        {label:'Open', act:()=>d.dispatchEvent(new MouseEvent('dblclick'))},
+      ];
+      if(it.kind==='folder'){
+        items.push({label:'Delete', act:async ()=>{
+          const ok = await showModal({title:'Delete',body:`Delete folder <b>${esc(it.name)}</b> and everything inside?`, buttons:[{label:'Cancel',value:false},{label:'Delete',value:true}]});
+          if(!ok) return;
+          const r = VFS.remove(it.path);
+          if(!r.ok) await showSecurity(r.reason);
+        }});
+      } else if(it.kind==='app'){
+        items.push({label:'Delete Shortcut', act:async ()=>{
+          const ok = await showModal({title:'Delete', body:`Delete <b>${esc(it.name)}</b> from PROGRAMS?`, buttons:[{label:'Cancel',value:false},{label:'Delete',value:true}]});
+          if(!ok) return;
+          const r = VFS.remove(['C:','PROGRAMS',it.name]);
+          if(!r.ok) await showSecurity(r.reason);
+        }});
+      }
+      showContextMenu(e.clientX, e.clientY, items);
+    });
+    box.appendChild(d);
+  }
+}
+
+/* =========================================================
+   Context menu helper
+   ========================================================= */
+let ctxOpen=null;
+function closeContextMenu(){ if(ctxOpen){ ctxOpen.remove(); ctxOpen=null; } }
+function showContextMenu(x, y, items){
+  closeContextMenu();
+  const m = el('div','ctxmenu');
+  for(const it of items){
+    if(it.sep){ m.appendChild(el('div','sep')); continue; }
+    const row = el('div','ci'+(it.disabled?' dis':''));
+    row.innerHTML = `<span class="g">${esc(it.glyph||'')}</span><span>${esc(it.label)}</span>`;
+    if(!it.disabled){
+      row.addEventListener('click', ()=>{
+        closeContextMenu();
+        try{ it.act(); }catch(e){ console.error(e); }
+      });
+    }
+    m.appendChild(row);
+  }
+  m.style.left = Math.min(x, window.innerWidth-200)+'px';
+  m.style.top  = Math.min(y, window.innerHeight-260)+'px';
+  $('#crt').appendChild(m);
+  ctxOpen = m;
+  beep(700,0.02);
+}
+document.addEventListener('mousedown', e=>{
+  if(ctxOpen && !ctxOpen.contains(e.target)) closeContextMenu();
+});
+
+/* =========================================================
+   Start Menu (dynamic from PROGRAMS)
+   ========================================================= */
+function buildStartMenu(){
+  const sm = $('#startMenu');
+  if(!sm) return;
+  const progs = VFS.ls(['C:','PROGRAMS'])||[];
+  const items = progs.filter(p=>p.type==='app').map(p=>({
+    a:p.app, icon:p.icon||'\u25A3', label: p.desc || p.name
+  }));
+  let html = `<div class="sm-header">VMOS 4.7</div>`;
+  for(const it of items){
+    html += `<div class="sm-item" data-a="${esc(it.a)}"><span class="g">${esc(it.icon)}</span> ${esc(it.label)}</div>`;
+  }
+  html += `
+    <div class="sm-sep"></div>
+    <div class="sm-item" data-a="saver"><span class="g">\u25C8</span> Lock Terminal</div>
+    <div class="sm-item" data-a="reboot"><span class="g">\u21BB</span> Reboot\u2026</div>
+    <div class="sm-item" data-a="shutdown"><span class="g">\u25C7</span> Shut Down\u2026</div>
+  `;
+  sm.innerHTML = html;
+  sm.onclick = e=>{
+    const it = e.target.closest('.sm-item'); if(!it) return;
+    closeStart();
+    const a = it.dataset.a;
+    if(a==='saver') startSaver();
+    else if(a==='shutdown') doShutdown();
+    else if(a==='reboot') doReboot();
+    else openApp(a);
+  };
+}
+function openStart(){ $('#startMenu').classList.add('open'); $('#startBtn').classList.add('open') }
+function closeStart(){ $('#startMenu').classList.remove('open'); $('#startBtn').classList.remove('open') }
+$('#startBtn').addEventListener('click', e=>{ e.stopPropagation(); ($('#startMenu').classList.contains('open')?closeStart:openStart)(); beep(700,0.03) });
+document.addEventListener('click', e=>{
+  if(!$('#startMenu').contains(e.target) && e.target!==$('#startBtn')) closeStart();
+});
+
+/* =========================================================
+   Window Manager
+   ========================================================= */
+const WM = {
+  wins: new Map(),
+  z: 100,
+  active: null,
+  open(opts){
+    const id = 'w'+uid();
+    const w = el('div','win');
+    w.dataset.id=id;
+    const {title='Untitled', icon='\u25C7', width=520, height=340, x, y, resizable=true, menubar=null, status=''} = opts;
+    const cx = x ?? (60 + (WM.wins.size*24)%180);
+    const cy = y ?? (40 + (WM.wins.size*22)%160);
+    w.style.left = cx+'px';
+    w.style.top  = cy+'px';
+    w.style.width = width+'px';
+    w.style.height = height+'px';
+    w.innerHTML = `
+      <div class="titlebar">
+        <span class="t-icon">${esc(icon)}</span>
+        <span class="t-title">${esc(title)}</span>
+        <span class="t-btns">
+          <button data-a="min" title="Minimize">_</button>
+          <button data-a="max" title="Maximize">\u25A2</button>
+          <button data-a="close" title="Close">\u2715</button>
+        </span>
+      </div>
+      ${menubar?`<div class="menubar">${menubar}</div>`:''}
+      <div class="body"></div>
+      <div class="statusbar"><span class="s-text">${esc(status)}</span></div>
+      ${resizable?'<div class="resize"></div>':''}
+    `;
+    $('#windows').appendChild(w);
+    const handle = {
+      id, el:w,
+      body: w.querySelector('.body'),
+      setTitle(t){ w.querySelector('.t-title').textContent=t; setTaskTitle(id,t); },
+      setStatus(t){ w.querySelector('.s-text').textContent=t; },
+      close(){ WM.close(id); },
+      onClose: null
+    };
+    WM.wins.set(id,{id,el:w,opts,handle});
+    WM.focus(id);
+    WM.wireWindow(id);
+    addTask(id, title, icon);
+    beep(900,0.02);
+    return handle;
+  },
+  wireWindow(id){
+    const {el:w} = WM.wins.get(id);
+    const tb = w.querySelector('.titlebar');
+    w.addEventListener('mousedown', ()=>WM.focus(id));
+    tb.addEventListener('click', e=>{
+      const b = e.target.closest('button'); if(!b) return;
+      const a = b.dataset.a;
+      if(a==='close') WM.close(id);
+      else if(a==='max') WM.toggleMax(id);
+      else if(a==='min') WM.minimize(id);
+    });
+    let dragging=false, sx,sy,ox,oy;
+    tb.addEventListener('mousedown', e=>{
+      if(e.target.closest('button')) return;
+      if(w.classList.contains('max')) return;
+      dragging=true; sx=e.clientX; sy=e.clientY;
+      ox=parseInt(w.style.left); oy=parseInt(w.style.top);
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', e=>{
+      if(!dragging) return;
+      w.style.left = Math.max(0, ox+e.clientX-sx)+'px';
+      w.style.top  = Math.max(0, oy+e.clientY-sy)+'px';
+    });
+    document.addEventListener('mouseup', ()=>dragging=false);
+    const rz = w.querySelector('.resize');
+    if(rz){
+      let rs=false, rx,ry,rw,rh;
+      rz.addEventListener('mousedown', e=>{
+        rs=true; rx=e.clientX; ry=e.clientY;
+        rw=w.offsetWidth; rh=w.offsetHeight; e.preventDefault();
+      });
+      document.addEventListener('mousemove', e=>{
+        if(!rs) return;
+        w.style.width  = Math.max(220, rw+e.clientX-rx)+'px';
+        w.style.height = Math.max(140, rh+e.clientY-ry)+'px';
+      });
+      document.addEventListener('mouseup', ()=>rs=false);
+    }
+  },
+  focus(id){
+    const rec = WM.wins.get(id); if(!rec) return;
+    if(rec.el.style.display==='none') rec.el.style.display='';
+    WM.z++;
+    rec.el.style.zIndex = WM.z;
+    WM.wins.forEach(({el})=>el.classList.add('inactive'));
+    rec.el.classList.remove('inactive');
+    WM.active = id;
+    updateTasks();
+  },
+  close(id){
+    const rec = WM.wins.get(id); if(!rec) return;
+    if(rec.handle.onClose){ try{ rec.handle.onClose(); }catch(e){} }
+    rec.el.remove();
+    WM.wins.delete(id);
+    removeTask(id);
+    beep(500,0.03,'sawtooth');
+  },
+  toggleMax(id){
+    const rec = WM.wins.get(id); if(!rec) return;
+    rec.el.classList.toggle('max');
+  },
+  minimize(id){
+    const rec = WM.wins.get(id); if(!rec) return;
+    rec.el.style.display='none';
+    updateTasks();
+  }
+};
+
+function addTask(id,title,icon){
+  const t = el('button','task');
+  t.dataset.id=id;
+  t.textContent = `${icon} ${title}`;
+  t.addEventListener('click', ()=>{
+    const rec = WM.wins.get(id); if(!rec) return;
+    if(rec.el.style.display==='none' || WM.active!==id) WM.focus(id);
+    else WM.minimize(id);
+  });
+  $('#tasks').appendChild(t);
+  updateTasks();
+}
+function setTaskTitle(id,title){
+  const t = $(`#tasks .task[data-id="${id}"]`); if(!t) return;
+  const icon = t.textContent.split(' ')[0];
+  t.textContent = `${icon} ${title}`;
+}
+function removeTask(id){
+  const t = $(`#tasks .task[data-id="${id}"]`); if(t) t.remove();
+}
+function updateTasks(){
+  $$('#tasks .task').forEach(t=>{
+    t.classList.toggle('active', t.dataset.id===WM.active);
+  });
+}
+
+/* =========================================================
+   Modals + prompt
+   ========================================================= */
+function showModal({title='NOTICE', body='', kind='info', buttons=[{label:'OK',value:true}]}){
+  return new Promise(resolve=>{
+    const back = el('div','modal-back');
+    const m = el('div','modal '+(kind==='error'?'':'info'));
+    m.innerHTML = `<div class="h">${esc(title)}</div><div class="b">${body}</div><div class="f"></div>`;
+    const foot = m.querySelector('.f');
+    for(const b of buttons){
+      const btn = el('button',null,b.label);
+      btn.addEventListener('click', ()=>{ back.remove(); resolve(b.value); beep(700,0.02) });
+      foot.appendChild(btn);
+    }
+    back.appendChild(m);
+    $('#crt').appendChild(back);
+    beep(kind==='error'?220:660,0.05, kind==='error'?'sawtooth':'square');
+  });
+}
+function showInfo(title, msg){
+  return showModal({title, body:`<pre style="margin:0;white-space:pre-wrap;font-family:var(--font-mono)">${esc(msg)}</pre><div class="sig">- vmos.sysop</div>`});
+}
+function showSecurity(reason){
+  return showModal({
+    title:'SECURITY GATE - SIGNAL BLOCKED',
+    kind:'error',
+    body:`<pre style="margin:0;white-space:pre-wrap;font-family:var(--font-mono);color:var(--fg-bright)">
+[!] The host bridge denied this operation.
+
+Reason : ${esc(reason)}
+Ref    : 0x${Math.floor(Math.random()*0xFFFFFF).toString(16).toUpperCase().padStart(6,'0')}
+Policy : VMOS/BRIDGE/DEFAULT
+</pre>
+<div class="sig">This is a sandbox. Certain classes of signals cannot pass the gate.</div>`,
+    buttons:[{label:'ACKNOWLEDGE',value:true}]
+  });
+}
+function promptModal(title, label, defVal=''){
+  return new Promise(resolve=>{
+    const back = el('div','modal-back');
+    const m = el('div','modal info');
+    m.innerHTML = `<div class="h">${esc(title)}</div>
+      <div class="b">${esc(label)}<br><br><input type="text" style="width:100%;background:var(--scr);color:var(--fg-bright);border:2px inset var(--bevel-lo);padding:2px 6px;font-family:var(--font-ui);font-size:16px" value="${esc(defVal)}"></div>
+      <div class="f"><button data-a="cancel">Cancel</button><button data-a="ok">OK</button></div>`;
+    back.appendChild(m); $('#crt').appendChild(back);
+    const inp = m.querySelector('input');
+    inp.focus(); inp.select();
+    m.addEventListener('click', e=>{
+      const a = e.target.dataset.a;
+      if(a==='ok'){ back.remove(); resolve(inp.value); }
+      else if(a==='cancel'){ back.remove(); resolve(null); }
+    });
+    inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ back.remove(); resolve(inp.value); } if(e.key==='Escape'){ back.remove(); resolve(null); } });
+  });
+}
+
+/* =========================================================
+   Clock + Net
+   ========================================================= */
+function startClock(){
+  const tick=()=>{ $('#clock').textContent = nowStr(); };
+  tick(); setInterval(tick, 10000);
+}
+async function updateNetStatus(){
+  const s = $('#netStatus');
+  s.textContent = 'NET\u2026';
+  try{
+    const r = await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/Cathode_ray_tube',{cache:'no-store'});
+    s.textContent = r.ok ? 'NET' : 'NET?';
+  }catch(e){
+    s.textContent = 'OFFLINE';
+  }
+}
+
+/* =========================================================
+   Save to virtual downloads (host isolation)
+   ========================================================= */
+function uniqueName(parent, base){
+  if(!parent.children[base]) return base;
+  const m = base.match(/^(.*?)(?:$$(\d+)$$)?(\.[^.]+)?$/);
+  const stem = m ? m[1] : base;
+  const ext  = m && m[3] ? m[3] : '';
+  let n = 1;
+  while(parent.children[`${stem}(${n})${ext}`]) n++;
+  return `${stem}(${n})${ext}`;
+}
+function saveToDownloads(filename, content, opts={}){
+  if(!VFS.resolve(['C:','DOWNLOADS'])) VFS.mkdir(['C:','DOWNLOADS']);
+  const parent = VFS.resolve(['C:','DOWNLOADS']);
+  const name = uniqueName(parent, filename);
+  parent.children[name] = { type: opts.type || 'txt', content, ...(opts.extra||{}) };
+  VFS.notify();
+  return name;
+}
+async function interceptedDownload(filename, content, opts={}){
+  const name = saveToDownloads(filename, content, opts);
+  await showInfo('DOWNLOAD CAPTURED',
+`The host bridge intercepted this download.
+
+File   : ${name}
+Target : C:\\DOWNLOADS\\${name}
+Size   : ${(opts.size || (content?.length||0))} bytes
+
+Files never leave this VM. Open EXPLORER to view.`);
+  return name;
+}
+/* =========================================================
+   APPS
+   ========================================================= */
+const APPS = {};
+
+/* -------- Terminal -------- */
+APPS.terminal = function(){
+  const win = WM.open({title:'C:\\SYSTEM\\VMSH.VMXE', icon:'>_', width:640, height:400, status:'VMSH 4.7 ready'});
+  const term = el('div','term');
+  win.body.appendChild(term);
+  const state = { cwd: [...VFS.cwd], history: [], hIdx: 0 };
+
+  const print = (html, cls) => {
+    const d = el('div','line'); if(cls) d.className+=' '+cls;
+    d.innerHTML = html;
+    term.appendChild(d);
+    term.scrollTop = term.scrollHeight;
+  };
+  const prompt = () => VFS.join(state.cwd) + '>';
+
+  const banner = () => {
+    print(`<span class="bright">VMOS 4.7 - Virtual Machine Shell (VMSH)</span>`);
+    print(`<span class="dim">(c) 1998 Virtual Fabrication Corp. Type 'help' for commands.</span>`);
+    print('');
+  };
+
+  const showInput = () => {
+    const line = el('div','line');
+    line.innerHTML = `<span class="prompt">${esc(prompt())}</span> `;
+    const input = el('input','in');
+    input.type='text'; input.spellcheck=false; input.autocomplete='off';
+    line.appendChild(input);
+    term.appendChild(line);
+    input.focus();
+    term.scrollTop = term.scrollHeight;
+
+    input.addEventListener('keydown', async e=>{
+      if(e.key==='Enter'){
+        const cmd = input.value;
+        input.disabled=true;
+        line.innerHTML = `<span class="prompt">${esc(prompt())}</span> ${esc(cmd)}`;
+        if(cmd.trim().length){ state.history.push(cmd); state.hIdx = state.history.length; }
+        await run(cmd);
+        showInput();
+      } else if(e.key==='ArrowUp'){
+        e.preventDefault();
+        if(state.hIdx>0){ state.hIdx--; input.value = state.history[state.hIdx]||''; }
+      } else if(e.key==='ArrowDown'){
+        e.preventDefault();
+        if(state.hIdx<state.history.length){ state.hIdx++; input.value = state.history[state.hIdx]||''; }
+      } else if(e.key==='l' && e.ctrlKey){
+        e.preventDefault(); term.innerHTML=''; banner(); showInput();
+      }
+    });
+  };
+
+  async function run(raw){
+    const parts = raw.trim().split(/\s+/);
+    const cmd = (parts[0]||'').toLowerCase();
+    const args = parts.slice(1);
+    if(!cmd) return;
+    switch(cmd){
+      case 'help':
+        print(`<span class="bright">COMMANDS</span>
+  help                     Show this list
+  cls | clear              Clear the screen
+  ver                      Show VMOS version
+  date                     Show current date/time
+  echo &lt;text&gt;               Print text
+  dir | ls [path]          List directory
+  cd [path]                Change directory (.. for parent)
+  pwd                      Show current directory
+  cat | type &lt;file&gt;        Show file contents
+  edit &lt;file&gt;              Open file in NOTEPAD.VMXE
+  run &lt;name.VMXE&gt;          Launch a program
+  mkdir &lt;name&gt;             Create directory
+  touch &lt;name.VMTXT&gt;       Create empty text file
+  del | rm &lt;file&gt;          Delete a file or empty dir
+  mv &lt;src&gt; &lt;dst&gt;           Rename within current dir
+  cp &lt;src&gt; &lt;dst&gt;           Copy file within current dir
+  search &lt;query&gt;           NetLink search (real web fetch)
+  fetch &lt;topic&gt;            Fetch encyclopedia article
+  ping &lt;host&gt;              Ping bridge (simulated)
+  theme &lt;name&gt;             phosphor | amber | ice | mono | magenta
+  saver                    Lock screen / screensaver
+  shutdown | exit          Power down VM`);
+        break;
+      case 'cls': case 'clear': term.innerHTML=''; banner(); break;
+      case 'ver': print('VMOS 4.7.3 build 12 (VMSH 4.7)'); break;
+      case 'date': print(new Date().toString()); break;
+      case 'echo': print(esc(args.join(' '))); break;
+      case 'pwd': print(esc(VFS.join(state.cwd))); break;
+      case 'dir': case 'ls': {
+        const p = args[0] ? VFS.parsePath(args[0]) : state.cwd;
+        const list = VFS.ls(p);
+        if(!list){ print(`<span class="err">Path not found: ${esc(args[0]||'.')}</span>`); break; }
+        print(` Directory of ${esc(VFS.join(p))}`);
+        print('');
+        for(const e of list){
+          const size = e.type==='dir' ? '&lt;DIR&gt;      ' : String(e.size||(e.content?.length||0)).padStart(9,' ');
+          print(` ${size}  ${esc(e.name)}`);
+        }
+        print(`   ${list.length} item(s)`);
+        break;
+      }
+      case 'cd': {
+        if(!args[0]){ print(esc(VFS.join(state.cwd))); break; }
+        const target = args[0];
+        if(target==='..'){
+          if(state.cwd.length>1) state.cwd.pop();
+          break;
+        }
+        const p = VFS.parsePath(target);
+        const node = VFS.resolve(p);
+        if(!node || node.type!=='dir'){ print(`<span class="err">Directory not found: ${esc(target)}</span>`); break; }
+        state.cwd = p;
+        break;
+      }
+      case 'cat': case 'type': {
+        if(!args[0]){ print(`<span class="err">Usage: cat &lt;file&gt;</span>`); break; }
+        const p = VFS.parsePath(args[0]);
+        const node = VFS.resolve(p);
+        if(!node || node.type==='dir'){ print(`<span class="err">File not found</span>`); break; }
+        if(node.type==='sys'){ print(`<span class="warn">[SYSTEM FILE - HEADER ONLY]</span>`); print(esc(node.content||'').split('\n').slice(0,5).join('\n')); break; }
+        if(node.type==='img'){ print(`<span class="warn">[IMAGE - open in EXPLORER for viewer]</span>`); break; }
+        print(esc(node.content||''));
+        break;
+      }
+      case 'edit': {
+        if(!args[0]){ print(`<span class="err">Usage: edit &lt;file&gt;</span>`); break; }
+        const p = VFS.parsePath(args[0]);
+        openApp('notepad',{path:p});
+        break;
+      }
+      case 'run': {
+        if(!args[0]){ print(`<span class="err">Usage: run &lt;name.VMXE&gt;</span>`); break; }
+        const name = args[0].toUpperCase();
+        const list = VFS.ls(['C:','PROGRAMS'])||[];
+        const found = list.find(e=>e.name.toUpperCase()===name);
+        if(!found || found.type!=='app'){ await showSecurity(`Executable not recognized: ${name}`); break; }
+        openApp(found.app);
+        break;
+      }
+      case 'mkdir': {
+        if(!args[0]){ print(`<span class="err">Usage: mkdir &lt;name&gt;</span>`); break; }
+        const r = VFS.mkdir([...state.cwd, args[0]]);
+        if(!r.ok){ print(`<span class="err">${esc(r.reason)}</span>`); }
+        break;
+      }
+      case 'touch': {
+        if(!args[0]){ print(`<span class="err">Usage: touch &lt;name&gt;</span>`); break; }
+        const r = VFS.write([...state.cwd, args[0]], '', {type:'txt'});
+        if(!r.ok){ print(`<span class="err">${esc(r.reason)}</span>`); }
+        break;
+      }
+      case 'del': case 'rm': {
+        if(!args[0]){ print(`<span class="err">Usage: del &lt;file&gt;</span>`); break; }
+        const p = /[\\\/]/.test(args[0]) ? VFS.parsePath(args[0]) : [...state.cwd, args[0]];
+        const node = VFS.resolve(p);
+        if(!node){ print(`<span class="err">Not found.</span>`); break; }
+        if(node.type==='dir' && Object.keys(node.children||{}).length){
+          print(`<span class="err">Directory not empty. Use del /s to force (not implemented).</span>`);
+          break;
+        }
+        const r = VFS.remove(p);
+        if(!r.ok){ await showSecurity(r.reason); }
+        else { print(`<span class="dim">deleted: ${esc(args[0])}</span>`); }
+        break;
+      }
+      case 'mv': {
+        if(args.length<2){ print(`<span class="err">Usage: mv &lt;src&gt; &lt;dst&gt;</span>`); break; }
+        const r = VFS.rename([...state.cwd, args[0]], args[1]);
+        if(!r.ok){ print(`<span class="err">${esc(r.reason)}</span>`); }
+        break;
+      }
+      case 'cp': {
+        if(args.length<2){ print(`<span class="err">Usage: cp &lt;src&gt; &lt;dst&gt;</span>`); break; }
+        const src = VFS.resolve([...state.cwd, args[0]]);
+        if(!src || src.type==='dir'){ print(`<span class="err">Source not found or is a directory.</span>`); break; }
+        const r = VFS.write([...state.cwd, args[1]], src.content, {type:src.type==='sys'?'txt':src.type});
+        if(!r.ok){ print(`<span class="err">${esc(r.reason)}</span>`); }
+        break;
+      }
+      case 'search': {
+        const q = args.join(' ');
+        if(!q){ print(`<span class="err">Usage: search &lt;query&gt;</span>`); break; }
+        print(`<span class="dim">[bridge] querying external index for: ${esc(q)}\u2026</span>`);
+        try{
+          const res = await ddgSearch(q);
+          if(!res.length){ print(`<span class="warn">No results.</span>`); break; }
+          for(const r of res.slice(0,8)){
+            print(`  #`);
+            if(r.snippet) print(`   <span class="dim">${esc(r.snippet)}</span>`);
+          }
+        }catch(e){ print(`<span class="err">[bridge] signal lost: ${esc(e.message||e)}</span>`); }
+        break;
+      }
+      case 'fetch': {
+        const q = args.join(' ');
+        if(!q){ print(`<span class="err">Usage: fetch &lt;topic&gt;</span>`); break; }
+        try{
+          const s = await wikiSummary(q);
+          if(!s){ print(`<span class="warn">No article.</span>`); break; }
+          print(`<span class="bright">${esc(s.title)}</span>`);
+          print(esc(s.extract||''));
+          print(`<span class="dim">source: ${esc(s.content_urls?.desktop?.page || '')}</span>`);
+        }catch(e){ print(`<span class="err">[bridge] fetch failed: ${esc(e.message||e)}</span>`); }
+        break;
+      }
+      case 'ping': {
+        const host = args[0]||'bridge.local';
+        for(let i=0;i<4;i++){
+          await sleep(300);
+          const ms = Math.floor(20 + Math.random()*80);
+          print(`Reply from ${esc(host)}: bytes=32 time=${ms}ms ttl=64`);
+        }
+        break;
+      }
+      case 'theme': {
+        const t = (args[0]||'').toLowerCase();
+        if(!['phosphor','amber','ice','mono','magenta'].includes(t)){
+          print(`<span class="err">Usage: theme &lt;phosphor|amber|ice|mono|magenta&gt;</span>`); break;
+        }
+        setTheme(t); print(`<span class="dim">theme set to ${esc(t)}</span>`);
+        break;
+      }
+      case 'saver': startSaver(); break;
+      case 'shutdown': case 'exit': doShutdown(); break;
+      case 'sudo': await showSecurity('This VM has no privilege ladder. Command refused.'); break;
+      case 'rm-rf': case 'format': await showSecurity('Destructive host command intercepted. Denied.'); break;
+      default:
+        print(`<span class="err">Unknown command: ${esc(cmd)}</span>. Type <span class="bright">help</span>.`);
+    }
+  }
+
+  term.addEventListener('click', async e=>{
+    const a = e.target.closest('a[data-fetch]');
+    if(!a) return;
+    e.preventDefault();
+    const href = a.dataset.fetch;
+    openApp('netlink',{url:href});
+  });
+
+  banner();
+  showInput();
+};
+
+/* -------- Notepad -------- */
+APPS.notepad = function(opts={}){
+  const path = opts.path || null;
+  const title = path ? 'NOTEPAD - '+VFS.join(path) : 'NOTEPAD - untitled.VMTXT';
+  const menubar = `<span class="mi" data-a="save">File &gt; Save</span><span class="mi" data-a="saveas">Save As\u2026</span><span class="mi" data-a="export">Export to Downloads</span>`;
+  const win = WM.open({title, icon:'\u2261', width:520, height:360, menubar, status:'ready'});
+  const ta = el('textarea','pad');
+  ta.spellcheck=false;
+  let curPath = path;
+  if(curPath){
+    const node = VFS.resolve(curPath);
+    if(node && node.type!=='dir'){
+      if(node.type==='img') ta.value='[binary image - open in EXPLORER]';
+      else ta.value = node.content||'';
+    } else ta.value = '';
+  }
+  win.body.appendChild(ta);
+  let dirty=false;
+  ta.addEventListener('input', ()=>{ dirty=true; win.setStatus('modified'); });
+
+  const mb = win.body.parentElement.querySelector('.menubar');
+  if(mb){
+    mb.addEventListener('click', async e=>{
+      const a = e.target.dataset.a; if(!a) return;
+      if(a==='save'){
+        if(!curPath){ return doSaveAs(); }
+        const r = VFS.write(curPath, ta.value);
+        win.setStatus(r.ok?'saved':'error');
+        if(!r.ok) await showSecurity(r.reason);
+        else dirty=false;
+      } else if(a==='saveas'){ doSaveAs(); }
+      else if(a==='export'){
+        const base = curPath ? curPath[curPath.length-1] : 'untitled.VMTXT';
+        const name = base.replace(/\.VMTXT$/i,'.txt').replace(/\.VMMD$/i,'.md');
+        const saved = await interceptedDownload(name, ta.value, {type:'txt', size:ta.value.length});
+        win.setStatus('exported: C:\\DOWNLOADS\\'+saved);
+      }
+    });
+  }
+  async function doSaveAs(){
+    const name = await promptModal('Save As','Enter filename (.VMTXT or .VMMD):', (curPath?curPath[curPath.length-1]:'untitled.VMTXT'));
+    if(!name) return;
+    if(!/\.(vmtxt|vmmd)$/i.test(name)){
+      await showSecurity('Only .VMTXT and .VMMD are writable inside this VM.');
+      return;
+    }
+    const dest = [...VFS.cwd, name];
+    const r = VFS.write(dest, ta.value, {type:'txt'});
+    if(!r.ok){ await showSecurity(r.reason); return; }
+    curPath = dest;
+    win.setTitle('NOTEPAD - '+VFS.join(curPath));
+    win.setStatus('saved: '+name);
+    dirty=false;
+  }
+};
+
+/* -------- Image Viewer -------- */
+APPS.imgview = function(opts={}){
+  const path = opts.path;
+  if(!path){ showInfo('IMAGE VIEWER','No image specified.'); return; }
+  const node = VFS.resolve(path);
+  if(!node || node.type!=='img'){ showInfo('IMAGE VIEWER','Not a viewable image.'); return; }
+  const win = WM.open({title:'IMAGE - '+VFS.join(path), icon:'\u25A9', width:520, height:420, status:node.width?`${node.width}x${node.height}`:''});
+  const wrap = el('div','imgv');
+  const img = new Image();
+  img.src = node.content;
+  wrap.appendChild(img);
+  win.body.appendChild(wrap);
+};
+
+/* -------- Explorer -------- */
+APPS.explorer = function(opts={}){
+  const startPath = opts.path || ['C:'];
+  const win = WM.open({title:'EXPLORER - '+VFS.join(startPath), icon:'\u25A4', width:640, height:420, status:''});
+  const root = el('div','expl');
+  root.innerHTML = `<div class="side"></div><div class="files" tabindex="0"></div>`;
+  win.body.appendChild(root);
+  const sideEl = root.querySelector('.side');
+  const filesEl = root.querySelector('.files');
+  let cur = startPath;
+  let selected = null;
+
+  function renderSide(){
+    sideEl.innerHTML='';
+    function walk(node, path, depth){
+      if(node.type!=='dir') return;
+      const it = el('div','tn');
+      it.style.paddingLeft = (6+depth*10)+'px';
+      it.innerHTML = `<span class="ch">\u25B8</span>${esc(path[path.length-1])}`;
+      if(JSON.stringify(path)===JSON.stringify(cur)) it.classList.add('sel');
+      it.addEventListener('click', ()=>{ navigate(path); });
+      sideEl.appendChild(it);
+      for(const [n,c] of Object.entries(node.children||{})){
+        if(c.type==='dir') walk(c, [...path,n], depth+1);
+      }
+    }
+    walk(VFS.root, ['C:'], 0);
+  }
+
+  function navigate(path){
+    if(!VFS.resolve(path)) path = ['C:'];
+    cur = path;
+    selected = null;
+    renderSide();
+    renderFiles();
+    win.setTitle('EXPLORER - '+VFS.join(cur));
+  }
+
+  function openEntry(e){
+    beep(1000,0.02);
+    if(e.type==='dir'){ navigate([...cur, e.name]); }
+    else if(e.type==='app'){ openApp(e.app); }
+    else if(e.type==='sys'){ showSecurity('System object opened read-only in HEX viewer (not installed).'); }
+    else if(e.type==='img'){ openApp('imgview',{path:[...cur, e.name]}); }
+    else { openApp('notepad',{path:[...cur, e.name]}); }
+  }
+
+  async function doDelete(name){
+    const node = VFS.resolve([...cur, name]);
+    if(!node) return;
+    let msg = `Delete <b>${esc(name)}</b>?`;
+    if(node.type==='dir'){
+      const n = Object.keys(node.children||{}).length;
+      msg = `Delete folder <b>${esc(name)}</b>${n?` and its ${n} item(s)`:''}?`;
+    }
+    const ok = await showModal({title:'Delete',body:msg, buttons:[{label:'Cancel',value:false},{label:'Delete',value:true}]});
+    if(!ok) return;
+    const r = VFS.remove([...cur, name]);
+    if(!r.ok) await showSecurity(r.reason);
+  }
+  async function doRename(name){
+    const nn = await promptModal('Rename','Enter a new name:', name);
+    if(!nn || nn===name) return;
+    const r = VFS.rename([...cur, name], nn);
+    if(!r.ok) await showSecurity(r.reason);
+  }
+  async function doNew(kind){
+    let defName = kind==='folder' ? 'NEW_FOLDER' : 'NEW_FILE.VMTXT';
+    const nn = await promptModal(kind==='folder'?'New Folder':'New Text File', 'Enter a name:', defName);
+    if(!nn) return;
+    if(kind==='folder'){
+      const r = VFS.mkdir([...cur, nn]);
+      if(!r.ok) await showSecurity(r.reason);
+    } else {
+      if(!/\.(vmtxt|vmmd)$/i.test(nn)){ await showSecurity('Only .VMTXT and .VMMD allowed for text files.'); return; }
+      const r = VFS.write([...cur, nn], '', {type:'txt'});
+      if(!r.ok) await showSecurity(r.reason);
+    }
+  }
+
+  function renderFiles(){
+    filesEl.innerHTML='';
+    const list = VFS.ls(cur)||[];
+    win.setStatus(`${list.length} item(s)`);
+    if(cur.length>1){
+      const up = el('div','f');
+      up.innerHTML = `<div class="g">\u2191</div><div>..</div>`;
+      up.addEventListener('dblclick', ()=>{ navigate(cur.slice(0,-1)); });
+      filesEl.appendChild(up);
+    }
+    for(const e of list){
+      const f = el('div','f');
+      f.dataset.name = e.name;
+      f.innerHTML = `<div class="g">${esc(iconFor(e.name,e.type,e))}</div><div>${esc(e.name)}</div>`;
+      f.addEventListener('click', ev=>{
+        $$('.expl .f.sel', root).forEach(x=>x.classList.remove('sel'));
+        f.classList.add('sel');
+        selected = e.name;
+      });
+      f.addEventListener('dblclick', ()=>openEntry(e));
+      f.addEventListener('contextmenu', ev=>{
+        ev.preventDefault(); ev.stopPropagation();
+        $$('.expl .f.sel', root).forEach(x=>x.classList.remove('sel'));
+        f.classList.add('sel'); selected = e.name;
+        const items = [
+          {label:'Open', glyph:'\u25B8', act:()=>openEntry(e)},
+        ];
+        if(e.type!=='dir' && e.type!=='sys' && e.type!=='app' && e.type!=='img'){
+          items.push({label:'Edit in Notepad', glyph:'\u2261', act:()=>openApp('notepad',{path:[...cur, e.name]})});
+        }
+        if(e.type!=='sys' && e.type!=='dir'){
+          items.push({label:'Export to Downloads', glyph:'\u21E9', act:async ()=>{
+            if(e.type==='img'){
+              await interceptedDownload(e.name, e.content, {type:'img', extra:{width:e.width,height:e.height}, size:(e.content?.length||0)});
+            } else {
+              await interceptedDownload(e.name, e.content||'', {type:'txt', size:(e.content||'').length});
+            }
+          }});
+        }
+        items.push({sep:true});
+        items.push({label:'Rename\u2026', glyph:'\u270E', act:()=>doRename(e.name), disabled: e.type==='sys'});
+        items.push({label:'Delete', glyph:'\u2715', act:()=>doDelete(e.name), disabled: e.type==='sys'});
+        showContextMenu(ev.clientX, ev.clientY, items);
+      });
+      filesEl.appendChild(f);
+    }
+  }
+
+  filesEl.addEventListener('contextmenu', ev=>{
+    if(ev.target.closest('.f')) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const items = [
+      {label:'New Folder', glyph:'\u25A4', act:()=>doNew('folder')},
+      {label:'New Text File (.VMTXT)', glyph:'\u2261', act:()=>doNew('file')},
+      {sep:true},
+      {label:'Refresh', glyph:'\u21BB', act:()=>renderFiles()},
+    ];
+    showContextMenu(ev.clientX, ev.clientY, items);
+  });
+
+  filesEl.addEventListener('keydown', async e=>{
+    if(!selected) return;
+    if(e.key==='Delete'){ e.preventDefault(); doDelete(selected); }
+    else if(e.key==='F2'){ e.preventDefault(); doRename(selected); }
+    else if(e.key==='Enter'){
+      e.preventDefault();
+      const list = VFS.ls(cur)||[];
+      const entry = list.find(x=>x.name===selected);
+      if(entry) openEntry(entry);
+    }
+  });
+
+  const off = VFS.onChange(()=>{
+    if(!VFS.resolve(cur)){ navigate(['C:']); }
+    else { renderSide(); renderFiles(); }
+  });
+  const rec = WM.wins.get(win.id);
+  if(rec) rec.handle.onClose = ()=>{ try{ off(); }catch(e){} };
+
+  renderSide(); renderFiles();
+  filesEl.focus();
+};
+
+/* -------- NetLink -------- */
+APPS.netlink = function(opts={}){
+  const win = WM.open({title:'NETLINK.VMXE - External Signal Browser', icon:'@', width:720, height:480, status:'ready'});
+  const root = el('div','net');
+  root.innerHTML = `
+    <div class="bar">
+      <button data-a="back">\u25C4</button>
+      <button data-a="home">\u2302</button>
+      <input type="text" placeholder="Enter query, wiki:topic, or portal:URL">
+      <button data-a="go">GO</button>
+      <button data-a="frame">EMBED</button>
+    </div>
+    <div class="view"></div>`;
+  win.body.appendChild(root);
+  const bar = root.querySelector('.bar');
+  const view = root.querySelector('.view');
+  const inp  = bar.querySelector('input');
+  const stack = [];
+
+  function home(){
+    stack.length=0;
+    view.innerHTML = `
+      <h1>NETLINK</h1>
+      <div class="dim">External signal bridge - filtered.</div>
+      <br>
+      <div>
+        <b>Try:</b><br>
+        &nbsp;&bull; <code>cathode ray tube</code> &nbsp;\u2192 encyclopedia<br>
+        &nbsp;&bull; <code>wiki:phosphor screen</code> &nbsp;\u2192 direct article<br>
+        &nbsp;&bull; <code>portal:https://example.com</code> &nbsp;\u2192 embed frame<br>
+        &nbsp;&bull; any free-text search
+      </div>
+      <br>
+      <div class="dim">The bridge blocks executable payloads and files that
+      are not on the allow-list. Any "download" is captured into C:\\DOWNLOADS
+      and never leaves the VM.</div>
+    `;
+    win.setTitle('NETLINK.VMXE - home');
+  }
+  async function go(q){
+    q = q.trim(); if(!q) return;
+    inp.value = q;
+    win.setStatus('fetching\u2026');
+    stack.push(q);
+    if(/^portal:/i.test(q)){
+      const u = q.replace(/^portal:/i,'').trim();
+      showFrame(u);
+    } else if(/^wiki:/i.test(q)){
+      const t = q.replace(/^wiki:/i,'').trim();
+      await showArticle(t);
+    } else if(/^https?:\/\//i.test(q)){
+      showFrame(q);
+    } else {
+      await showSearch(q);
+    }
+    win.setStatus('ready');
+  }
+  async function showSearch(q){
+    view.innerHTML = `<div class="dim">SEARCHING: ${esc(q)}\u2026</div>`;
+    try{
+      const results = await ddgSearch(q);
+      if(!results.length){
+        view.innerHTML = `<div class="warn">No results.</div>`; return;
+      }
+      view.innerHTML = `<h2>results for \u201C${esc(q)}\u201D</h2>`;
+      for(const r of results.slice(0,10)){
+        const div = el('div','result');
+        div.innerHTML = `<div><a data-href="${esc(r.href)}">${esc(r.title)}</a></div>
+          <div class="u">${esc(r.href)}</div>
+          <div>${esc(r.snippet||'')}</div>`;
+        view.appendChild(div);
+      }
+      const relatedNote = el('div','dim');
+      relatedNote.innerHTML = '<br>bridge routed via DuckDuckGo instant answers &middot; encyclopedia via Wikipedia.';
+      view.appendChild(relatedNote);
+    }catch(e){
+      view.innerHTML = `<div class="err">Bridge error: ${esc(e.message||e)}</div>`;
+    }
+  }
+  async function showArticle(topic){
+    view.innerHTML = `<div class="dim">FETCHING article: ${esc(topic)}\u2026</div>`;
+    try{
+      const s = await wikiSummary(topic);
+      if(!s){ view.innerHTML = `<div class="warn">No article.</div>`; return; }
+      view.innerHTML = `
+        <h1>${esc(s.title)}</h1>
+        ${s.description?`<div class="dim">${esc(s.description)}</div>`:''}
+        ${s.thumbnail?`${esc(s.thumbnail.source)} style="max-width:220px;border:2px solid var(--fg-dim);image-rendering:auto;margin:8px 0" data-savable="1">`:''}
+        <p>${esc(s.extract||'').split('\n').map(x=>esc(x)).join('<br>')}</p>
+        <p class="dim">source: <a data-href="${esc(s.content_urls?.desktop?.page||'')}">${esc(s.content_urls?.desktop?.page||'')}</a></p>
+        <p><button data-savearticle="1" style="background:var(--panel);color:var(--fg-bright);border:none;box-shadow:inset -1px -1px 0 var(--bevel-lo),inset 1px 1px 0 var(--bevel-hi);padding:4px 10px;cursor:pointer;font-family:var(--font-ui);font-size:16px">SAVE ARTICLE TO C:\\DOWNLOADS</button></p>
+      `;
+      win.setTitle('NETLINK.VMXE - '+s.title);
+      const btn = view.querySelector('[data-savearticle]');
+      if(btn) btn.addEventListener('click', async ()=>{
+        const filename = (s.title||'article').replace(/[^\w\-]+/g,'_')+'.VMTXT';
+        const content = `# ${s.title}\n\n${s.description||''}\n\n${s.extract||''}\n\nSource: ${s.content_urls?.desktop?.page||''}\n`;
+        await interceptedDownload(filename, content, {type:'txt', size:content.length});
+      });
+      const th = view.querySelector('img[data-savable]');
+      if(th){
+        th.style.cursor='context-menu';
+        th.addEventListener('contextmenu', async ev=>{
+          ev.preventDefault();
+          showContextMenu(ev.clientX, ev.clientY, [
+            {label:'Save image to C:\\DOWNLOADS', glyph:'\u21E9', act: async ()=>{
+              try{
+                const r = await fetch(th.src);
+                const blob = await r.blob();
+                const dataUrl = await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.readAsDataURL(blob); });
+                const name = (s.title||'image').replace(/[^\w\-]+/g,'_')+'.png';
+                await interceptedDownload(name, dataUrl, {type:'img', extra:{width:th.naturalWidth,height:th.naturalHeight}, size:blob.size});
+              }catch(err){ await showSecurity('Bridge could not capture image: '+err.message); }
+            }}
+          ]);
+        });
+      }
+    }catch(e){
+      view.innerHTML = `<div class="err">Bridge error: ${esc(e.message||e)}</div>`;
+    }
+  }
+  function showFrame(url){
+    view.innerHTML = '';
+    view.style.padding='0';
+    const f = el('iframe');
+    f.setAttribute('sandbox','allow-scripts allow-forms allow-same-origin');
+    f.src = url;
+    f.addEventListener('load', ()=>{ win.setStatus('frame loaded - '+url); });
+    f.addEventListener('error', ()=>{ showSecurity('Frame refused by host at '+url); });
+    view.appendChild(f);
+    win.setTitle('NETLINK.VMXE - '+url);
+  }
+
+  bar.addEventListener('click', e=>{
+    const a = e.target.dataset.a;
+    if(a==='go') go(inp.value);
+    else if(a==='home'){ view.style.padding='10px'; home(); }
+    else if(a==='back'){
+      view.style.padding='10px';
+      stack.pop(); const prev = stack.pop();
+      if(prev) go(prev); else home();
+    }
+    else if(a==='frame'){
+      const q = inp.value.trim();
+      if(/^https?:/i.test(q)) showFrame(q);
+      else showFrame('https://duckduckgo.com/?q='+encodeURIComponent(q));
+    }
+  });
+  inp.addEventListener('keydown', e=>{ if(e.key==='Enter') go(inp.value); });
+  view.addEventListener('click', e=>{
+    const a = e.target.closest('a[data-href]');
+    if(!a) return;
+    e.preventDefault();
+    go(a.dataset.href);
+  });
+
+  view.style.padding='10px';
+  if(opts.url) go(opts.url);
+  else if(opts.query) go(opts.query);
+  else home();
+};
+/* -------- Config / Themes -------- */
+APPS.config = function(){
+  const win = WM.open({title:'CONFIG.VMXE - Display & System', icon:'\u2731', width:560, height:440, status:''});
+  const root = el('div','cfg');
+  root.innerHTML = `
+    <h2>PHOSPHOR THEME</h2>
+    <div class="row" id="themeRow">
+      <div class="sw" data-t="phosphor" style="background:#0a1a0a;color:#7dff7d">GRN</div>
+      <div class="sw" data-t="amber"    style="background:#1a0e02;color:#ffbf5a">AMB</div>
+      <div class="sw" data-t="ice"      style="background:#04121e;color:#8fd8ff">ICE</div>
+      <div class="sw" data-t="mono"     style="background:#111;color:#e0e0e0">MON</div>
+      <div class="sw" data-t="magenta"  style="background:#150318;color:#ff8bff">MAG</div>
+    </div>
+
+    <h2>CRT EFFECTS</h2>
+    <div class="row">
+      <label><input type="checkbox" id="cfgScan" checked> Scanlines</label>
+      <label><input type="checkbox" id="cfgFlick" checked> Flicker</label>
+      <label><input type="checkbox" id="cfgVign" checked> Vignette</label>
+      <label><input type="checkbox" id="cfgGrid" checked> Grid on desktop</label>
+    </div>
+    <div class="row">
+      <span>Text size:</span>
+      <input type="range" id="cfgSize" min="14" max="24" value="18">
+      <span id="cfgSizeV">18</span>px
+    </div>
+    <div class="row">
+      <span>Glow:</span>
+      <input type="range" id="cfgGlow" min="0" max="14" value="6">
+      <span id="cfgGlowV">6</span>px
+    </div>
+
+    <h2>SYSTEM</h2>
+    <div class="row">
+      <button id="cfgReboot">Reboot VM</button>
+      <button id="cfgSaver">Screensaver Now</button>
+      <button id="cfgAbout">About VMOS</button>
+    </div>
+    <div class="dim" style="margin-top:12px">Settings apply live. Changes are not persisted (this VM has no disk).</div>
+  `;
+  win.body.appendChild(root);
+
+  const themeRow = root.querySelector('#themeRow');
+  const markSel = ()=> $$('.sw', themeRow).forEach(s=>s.classList.toggle('sel', s.dataset.t===(document.body.dataset.theme||'phosphor')));
+  markSel();
+  themeRow.addEventListener('click', e=>{
+    const sw = e.target.closest('.sw'); if(!sw) return;
+    setTheme(sw.dataset.t); markSel();
+  });
+
+  const q = s=>root.querySelector(s);
+  q('#cfgScan').addEventListener('change', e=>{ document.documentElement.style.setProperty('--scanline-a', e.target.checked?'rgba(0,0,0,0.35)':'rgba(0,0,0,0)'); });
+  q('#cfgFlick').addEventListener('change', e=>{ document.body.classList.toggle('noflick', !e.target.checked); });
+  q('#cfgVign').addEventListener('change', e=>{ document.body.classList.toggle('novign', !e.target.checked); });
+  q('#cfgGrid').addEventListener('change', e=>{ document.body.classList.toggle('nogrid', !e.target.checked); });
+  q('#cfgSize').addEventListener('input', e=>{ document.body.style.fontSize = e.target.value+'px'; q('#cfgSizeV').textContent=e.target.value; });
+  q('#cfgGlow').addEventListener('input', e=>{
+    const v = e.target.value+'px';
+    q('#cfgGlowV').textContent = e.target.value;
+    const style = document.getElementById('glowStyle') || (()=>{ const s=document.createElement('style'); s.id='glowStyle'; document.head.appendChild(s); return s; })();
+    style.textContent = `.bright,.term,.pad,#boot{ text-shadow: 0 0 ${v} var(--fg) }`;
+  });
+  q('#cfgReboot').addEventListener('click', doReboot);
+  q('#cfgSaver').addEventListener('click', startSaver);
+  q('#cfgAbout').addEventListener('click', ()=>openApp('sysinfo'));
+};
+
+function setTheme(t){
+  if(t==='phosphor') document.body.removeAttribute('data-theme');
+  else document.body.dataset.theme = t;
+  beep(1200,0.03);
+}
+
+/* -------- Sysinfo -------- */
+APPS.sysinfo = function(){
+  const win = WM.open({title:'SYSINFO.VMXE - About', icon:'i', width:480, height:360, status:''});
+  const root = el('div','cfg');
+  root.innerHTML = `
+    <h2>VMOS 4.7</h2>
+    <div>Virtual Machine Shell &nbsp;<span class="dim">build 12 (07/23/1998)</span></div>
+    <br>
+    <div><b>CPU</b> &nbsp;: VM-486 @ 33 MHz (emulated)</div>
+    <div><b>MEM</b> &nbsp;: 640K base + 32,768K extended</div>
+    <div><b>DISK</b>: 384 MB (simulated volatile)</div>
+    <div><b>NET</b> &nbsp;: bridge to host - filtered</div>
+    <div><b>GFX</b> &nbsp;: CRT phosphor emulator v2.11</div>
+    <br>
+    <div class="dim">This VM is a self-contained retro shell rendered entirely in
+    your browser. No host resources are accessed except via the filtered
+    net bridge. All local file operations are simulated. Any "downloads"
+    are captured to C:\\DOWNLOADS and never leave the VM. State resets on
+    reboot.</div>
+    <br>
+    <div class="dim">Runtime host: <span id="ua"></span></div>
+  `;
+  win.body.appendChild(root);
+  root.querySelector('#ua').textContent = navigator.userAgent;
+};
+
+/* -------- Paint -------- */
+APPS.paint = function(opts={}){
+  const win = WM.open({title:'PAINT.VMXE', icon:'\u270E', width:520, height:420, status:'left-click to draw, right-click to erase'});
+  const wrap = el('div',null);
+  wrap.style.cssText='display:flex;flex-direction:column;height:100%';
+  const toolbar = el('div',null);
+  toolbar.style.cssText='display:flex;gap:6px;padding:4px;background:var(--panel-hi);border-bottom:1px solid var(--bevel-lo);align-items:center;flex-wrap:wrap';
+  const colors = ['#7dff7d','#ffffff','#ffbf5a','#8fd8ff','#ff8bff','#ff5c5c','#000000'];
+  colors.forEach(c=>{
+    const b = el('div',null);
+    b.style.cssText=`width:20px;height:20px;background:${c};cursor:pointer;border:2px solid var(--fg-dim);box-shadow: inset -1px -1px 0 var(--bevel-lo)`;
+    b.addEventListener('click', ()=>{ state.color=c; });
+    toolbar.appendChild(b);
+  });
+  const mkBtn = txt=>{ const b=el('button',null,txt); b.style.cssText='background:var(--panel);color:var(--fg-bright);border:none;box-shadow: inset -1px -1px 0 var(--bevel-lo), inset 1px 1px 0 var(--bevel-hi);padding:2px 8px;cursor:pointer;font-family:var(--font-ui);font-size:16px'; return b; };
+  const clearBtn = mkBtn('CLEAR');
+  const saveBtn  = mkBtn('SAVE TO VFS');
+  const dl       = mkBtn('EXPORT PNG');
+  toolbar.appendChild(clearBtn);
+  toolbar.appendChild(saveBtn);
+  toolbar.appendChild(dl);
+  const canv = document.createElement('canvas');
+  canv.width=480; canv.height=280;
+  canv.style.cssText='background:var(--scr);flex:1;cursor:crosshair;image-rendering:pixelated;margin:6px;border:2px solid var(--fg-dim)';
+  wrap.appendChild(toolbar); wrap.appendChild(canv);
+  win.body.appendChild(wrap);
+  const ctx = canv.getContext('2d');
+  const state = { color:'#7dff7d', down:false, btn:0, last:null };
+
+  if(opts.path){
+    const node = VFS.resolve(opts.path);
+    if(node && node.type==='img' && node.content){
+      const img = new Image();
+      img.onload = ()=>{ canv.width = img.naturalWidth||canv.width; canv.height = img.naturalHeight||canv.height; ctx.drawImage(img,0,0); };
+      img.src = node.content;
+      win.setTitle('PAINT - '+VFS.join(opts.path));
+    }
+  }
+
+  clearBtn.addEventListener('click', ()=>{ ctx.clearRect(0,0,canv.width,canv.height); });
+  saveBtn.addEventListener('click', async ()=>{
+    const name = await promptModal('Save to VFS','Save as (in current dir):','doodle.png');
+    if(!name) return;
+    if(!/\.(png|jpg|jpeg|bmp)$/i.test(name)){ await showSecurity('Image files must end in .png/.jpg/.bmp'); return; }
+    const dataUrl = canv.toDataURL('image/png');
+    const r = VFS.write([...VFS.cwd, name], dataUrl, {type:'img', extra:{width:canv.width, height:canv.height}});
+    if(!r.ok) await showSecurity(r.reason);
+    else win.setStatus('saved to '+VFS.join(VFS.cwd)+'\\'+name);
+  });
+  dl.addEventListener('click', async ()=>{
+    const dataUrl = canv.toDataURL('image/png');
+    const saved = await interceptedDownload('doodle.png', dataUrl, {type:'img', extra:{width:canv.width, height:canv.height}, size:dataUrl.length});
+    win.setStatus('captured: C:\\DOWNLOADS\\'+saved);
+  });
+  canv.addEventListener('contextmenu', e=>e.preventDefault());
+  const pos = e=>{
+    const r = canv.getBoundingClientRect();
+    return [Math.floor((e.clientX-r.left)*(canv.width/r.width)), Math.floor((e.clientY-r.top)*(canv.height/r.height))];
+  };
+  canv.addEventListener('mousedown', e=>{ state.down=true; state.btn=e.button; state.last=pos(e); draw(e,true); });
+  canv.addEventListener('mousemove', e=>{ if(state.down) draw(e); });
+  window.addEventListener('mouseup', ()=>state.down=false);
+  function draw(e, single){
+    const [x,y] = pos(e);
+    ctx.lineWidth = 3;
+    ctx.lineCap='round';
+    if(state.btn===2){ ctx.globalCompositeOperation='destination-out'; ctx.strokeStyle='#000'; }
+    else { ctx.globalCompositeOperation='source-over'; ctx.strokeStyle = state.color; }
+    ctx.beginPath();
+    if(single || !state.last){ ctx.moveTo(x,y); ctx.lineTo(x+0.1,y+0.1); }
+    else { ctx.moveTo(state.last[0], state.last[1]); ctx.lineTo(x,y); }
+    ctx.stroke();
+    state.last = [x,y];
+  }
+};
+
+/* -------- Mines -------- */
+APPS.mines = function(){
+  const W=9,H=9,MINES=10;
+  const win = WM.open({title:'MINES.VMXE', icon:'\u2731', width:340, height:400, status:'flags: 0 / '+MINES});
+  const wrap = el('div',null);
+  wrap.style.cssText='padding:8px;display:flex;flex-direction:column;align-items:center;gap:8px;height:100%;background:var(--panel)';
+  const info = el('div',null,'\u2663 mines \u00B7 left-click reveal \u00B7 right-click flag');
+  info.style.color='var(--fg-bright)';
+  const board = el('div',null);
+  board.style.cssText=`display:grid;grid-template-columns:repeat(${W}, 26px);grid-auto-rows:26px;gap:1px;background:var(--bevel-lo);border:2px solid var(--fg-dim);box-shadow: inset 2px 2px 0 var(--bevel-hi), inset -2px -2px 0 var(--bevel-lo)`;
+  const btn = el('button',null,'NEW GAME');
+  btn.style.cssText='background:var(--panel-hi);color:var(--fg-bright);border:none;box-shadow: inset -1px -1px 0 var(--bevel-lo), inset 1px 1px 0 var(--bevel-hi);padding:4px 10px;cursor:pointer;font-family:var(--font-ui)';
+  wrap.appendChild(info); wrap.appendChild(board); wrap.appendChild(btn);
+  win.body.appendChild(wrap);
+
+  let cells=[], flags=0, done=false;
+  function neighbors(x,y){ const r=[]; for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){ if(!dx&&!dy)continue; const nx=x+dx,ny=y+dy; if(nx>=0&&ny>=0&&nx<W&&ny<H) r.push([nx,ny]); } return r; }
+  function reset(){
+    board.innerHTML=''; cells=[]; flags=0; done=false;
+    win.setStatus(`flags: 0 / ${MINES}`);
+    const idx = new Set();
+    while(idx.size<MINES) idx.add(Math.floor(Math.random()*W*H));
+    for(let y=0;y<H;y++){
+      const row=[];
+      for(let x=0;x<W;x++){
+        const c = { mine:idx.has(y*W+x), open:false, flag:false, adj:0, x, y, el:null };
+        row.push(c);
+      }
+      cells.push(row);
+    }
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+      if(cells[y][x].mine) continue;
+      cells[y][x].adj = neighbors(x,y).filter(([nx,ny])=>cells[ny][nx].mine).length;
+    }
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+      const c = cells[y][x];
+      const b = el('div',null);
+      b.style.cssText=`display:grid;place-items:center;background:var(--panel-hi);color:var(--fg-bright);cursor:pointer;font-size:16px;box-shadow: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo);user-select:none`;
+      b.addEventListener('click', ()=>reveal(x,y));
+      b.addEventListener('contextmenu', e=>{ e.preventDefault(); flag(x,y); });
+      c.el = b; board.appendChild(b);
+    }
+  }
+  function reveal(x,y){
+    if(done) return;
+    const c = cells[y][x]; if(c.open||c.flag) return;
+    c.open=true;
+    if(c.mine){
+      c.el.textContent='\u2731'; c.el.style.background='var(--danger)';
+      done=true;
+      for(const row of cells) for(const cc of row) if(cc.mine && cc!==c){ cc.el.textContent='\u2731'; }
+      win.setStatus('BOOM. new game?');
+      beep(120,0.3,'sawtooth');
+      return;
+    }
+    c.el.style.background='var(--panel-lo)';
+    c.el.style.boxShadow='inset 1px 1px 0 var(--bevel-lo)';
+    if(c.adj>0){ c.el.textContent=c.adj; c.el.style.color=['','#7dff7d','#8fd8ff','#ffbf5a','#ff8bff','#ff5c5c','#ffffff','#ffd76b','#b6ffb6'][c.adj]; }
+    else { for(const [nx,ny] of neighbors(x,y)) reveal(nx,ny); }
+    let opened=0; for(const row of cells) for(const cc of row) if(cc.open) opened++;
+    if(opened === W*H - MINES){ done=true; win.setStatus('CLEARED!'); beep(1200,0.1); }
+  }
+  function flag(x,y){
+    if(done) return;
+    const c = cells[y][x]; if(c.open) return;
+    c.flag = !c.flag; c.el.textContent = c.flag?'\u2691':'';
+    flags += c.flag?1:-1;
+    win.setStatus(`flags: ${flags} / ${MINES}`);
+  }
+  btn.addEventListener('click', reset);
+  reset();
+};
+
+/* =========================================================
+   Real-web helpers
+   ========================================================= */
+async function wikiSummary(topic){
+  const clean = topic.trim().replace(/\s+/g,'_');
+  const u = 'https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(clean);
+  const r = await fetch(u, {headers:{'accept':'application/json'}});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return await r.json();
+}
+async function ddgSearch(q){
+  const u = 'https://api.duckduckgo.com/?q=' + encodeURIComponent(q) + '&format=json&no_html=1&skip_disambig=1';
+  const r = await fetch(u);
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  const j = await r.json();
+  const results = [];
+  if(j.AbstractText && j.AbstractURL){
+    results.push({title: j.Heading || q, href: j.AbstractURL, snippet: j.AbstractText});
+  }
+  const flatten = (arr) => {
+    for(const it of arr||[]){
+      if(it.Topics) flatten(it.Topics);
+      else if(it.FirstURL && it.Text){
+        results.push({title: it.Text.split(' - ')[0], href: it.FirstURL, snippet: it.Text});
+      }
+    }
+  };
+  flatten(j.RelatedTopics);
+  results.push({
+    title: 'Wikipedia article: '+q,
+    href: 'https://en.wikipedia.org/wiki/'+encodeURIComponent(q.replace(/\s+/g,'_')),
+    snippet: 'Open direct Wikipedia article for \u201C'+q+'\u201D.'
+  });
+  return results;
+}
+
+/* =========================================================
+   Screensaver
+   ========================================================= */
+let lastActivity=Date.now();
+function startSaver(){
+  const s = $('#saver'); s.classList.add('on');
+  const c = s.querySelector('canvas');
+  c.width  = s.clientWidth;
+  c.height = s.clientHeight;
+  const ctx = c.getContext('2d');
+  const cols = Math.floor(c.width/14);
+  const drops = new Array(cols).fill(0).map(()=>Math.floor(Math.random()*c.height/16));
+  const glyphs = '01#$%*+<>[]{}=abcdefghijk0987654321';
+  let stop=false;
+  function frame(){
+    if(stop) return;
+    ctx.fillStyle='rgba(0,0,0,0.08)';
+    ctx.fillRect(0,0,c.width,c.height);
+    ctx.font = '16px VT323, monospace';
+    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--fg').trim() || '#7dff7d';
+    for(let i=0;i<cols;i++){
+      const g = glyphs[Math.floor(Math.random()*glyphs.length)];
+      ctx.fillText(g, i*14, drops[i]*16);
+      if(drops[i]*16 > c.height && Math.random()>0.98) drops[i]=0;
+      drops[i]++;
+    }
+    requestAnimationFrame(frame);
+  }
+  frame();
+  const wake = ()=>{ stop=true; s.classList.remove('on'); document.removeEventListener('keydown',wake); document.removeEventListener('pointerdown',wake); };
+  document.addEventListener('keydown',wake);
+  document.addEventListener('pointerdown',wake);
+}
+function resetIdle(){ lastActivity=Date.now(); }
+['mousemove','keydown','pointerdown'].forEach(ev=>document.addEventListener(ev, resetIdle));
+setInterval(()=>{
+  if(Date.now()-lastActivity > 3*60*1000 && !$('#saver').classList.contains('on') && $('#desktop').classList.contains('on')){
+    startSaver(); resetIdle();
+  }
+}, 15000);
+
+/* =========================================================
+   Reboot / Shutdown
+   ========================================================= */
+async function doReboot(){
+  const ok = await showModal({title:'REBOOT?',body:'All simulated state will be lost. Continue?',buttons:[{label:'Cancel',value:false},{label:'Reboot',value:true}]});
+  if(!ok) return;
+  location.reload();
+}
+async function doShutdown(){
+  const ok = await showModal({title:'SHUT DOWN?',body:'Power off the VM?',buttons:[{label:'Cancel',value:false},{label:'Shut Down',value:true}]});
+  if(!ok) return;
+  document.body.style.transition='filter 0.4s, opacity 0.6s';
+  document.body.style.filter='brightness(0.4) blur(2px)';
+  $('#desktop').style.transformOrigin='center';
+  $('#desktop').style.transition='transform 0.4s, opacity 0.4s';
+  $('#desktop').style.transform='scaleY(0.02)';
+  await sleep(420);
+  $('#desktop').style.opacity='0';
+  await sleep(200);
+  document.body.innerHTML = '<div style="position:fixed;inset:0;background:#000;display:grid;place-items:center;color:#333;font-family:VT323,monospace;font-size:22px">It is now safe to close this tab.</div>';
+}
+
+/* =========================================================
+   Public
+   ========================================================= */
+function openApp(name, opts){
+  const fn = APPS[name];
+  if(!fn){ return showSecurity('No handler for '+name); }
+  fn(opts);
+}
+
+/* =========================================================
+   Global download interception
+   ========================================================= */
+document.addEventListener('click', async e=>{
+  const a = e.target.closest('a[download]');
+  if(!a) return;
+  e.preventDefault();
+  const href = a.href;
+  const name = a.getAttribute('download') || 'download.bin';
+  try{
+    if(/^data:/.test(href)){
+      const isImg = /^data:image\//.test(href);
+      await interceptedDownload(name, href, {
+        type: isImg ? 'img' : 'txt',
+        size: href.length
+      });
+    } else {
+      const r = await fetch(href);
+      const ct = r.headers.get('content-type')||'';
+      if(/^image\//.test(ct)){
+        const blob = await r.blob();
+        const dataUrl = await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.readAsDataURL(blob); });
+        await interceptedDownload(name, dataUrl, {type:'img', size:blob.size});
+      } else {
+        const txt = await r.text();
+        await interceptedDownload(name, txt, {type:'txt', size:txt.length});
+      }
+    }
+  }catch(err){
+    await showSecurity('Bridge could not capture download: '+err.message);
+  }
+}, true);
+
+/* =========================================================
+   Boot
+   ========================================================= */
+window.addEventListener('load', runBoot);
+
+document.addEventListener('contextmenu', e=>{
+  if(e.target.closest('.term, .pad, canvas, iframe, input, textarea, .ctxmenu, .expl, .icon, .net .view img')) return;
+  e.preventDefault();
+});
+
+document.addEventListener('keydown', e=>{
+  if(e.ctrlKey && e.key==='`'){
+    const ids = [...WM.wins.keys()];
+    if(!ids.length) return;
+    const idx = ids.indexOf(WM.active);
+    const next = ids[(idx+1)%ids.length];
+    WM.focus(next);
+    e.preventDefault();
+  }
+});
+</script>
+</body>
+</html>
