@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VMOS 4.7 — Boot Loader</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  @font-face{
+    font-family:'VT323';
+    src: local('VT323');
+    font-display:swap;
+  }
+  *,*::before,*::after{ box-sizing:border-box }
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:#000;
+    color:#7dff7d;
+    font-family:'VT323','Courier New',ui-monospace,monospace;
+    overflow:hidden;
+    cursor:default;
+  }
+  #crt{
+    position:fixed; inset:0;
+    background:
+      radial-gradient(ellipse at center, rgba(0,0,0,0) 40%, rgba(0,0,0,0.55) 100%),
+      #0a1a0a;
+  }
+  #crt::before{
+    content:""; position:absolute; inset:0; pointer-events:none; z-index:2;
+    background:repeating-linear-gradient(to bottom,
+      rgba(0,0,0,0.35) 0px, rgba(0,0,0,0.35) 1px,
+      rgba(0,0,0,0) 1px, rgba(0,0,0,0) 3px);
+    mix-blend-mode:multiply;
+    animation:crtRoll 8s linear infinite;
+  }
+  #crt::after{
+    content:""; position:absolute; inset:0; pointer-events:none; z-index:3;
+    background:radial-gradient(ellipse at center, rgba(255,255,255,0.02), rgba(0,0,0,0.35));
+    animation:crtFlicker 0.15s steps(2) infinite;
+  }
+  @keyframes crtRoll{ 0%{background-position:0 0} 100%{background-position:0 100px} }
+  @keyframes crtFlicker{ 0%{opacity:0.85} 50%{opacity:1} 100%{opacity:0.9} }
+
+  #screen{
+    position:absolute; inset:0;
+    background:#071307;
+    box-shadow: inset 0 0 120px rgba(0,0,0,0.8), inset 0 0 20px rgba(0,0,0,0.6);
+    display:flex; align-items:center; justify-content:center;
+  }
+
+  #post{
+    width:min(640px, 88vw);
+    text-shadow:0 0 6px #7dff7d;
+  }
+  #post pre{
+    margin:0 0 14px 0;
+    white-space:pre-wrap;
+    font-size:18px;
+    line-height:1.3;
+    color:#b6ffb6;
+  }
+  #post .dim{ color:#3fa93f }
+
+  #bootRow{
+    margin-top:22px;
+    display:flex;
+    align-items:center;
+    gap:14px;
+    font-size:18px;
+  }
+  #bootRow .lbl{ color:#3fa93f }
+
+  #bootBtn{
+    font-family:inherit;
+    font-size:22px;
+    letter-spacing:2px;
+    color:#071307;
+    background:linear-gradient(90deg,#7dff7d,#1b641b);
+    border:2px solid #7dff7d;
+    padding:8px 22px;
+    cursor:pointer;
+    box-shadow: inset -1px -1px 0 #033603, inset 1px 1px 0 #b6ffb6, 4px 4px 0 rgba(0,0,0,0.6);
+    text-decoration:none;
+    display:inline-block;
+    animation:bpulse 1.6s ease-in-out infinite;
+  }
+  #bootBtn:hover{ filter:brightness(1.15) }
+  #bootBtn:active{
+    box-shadow: inset 1px 1px 0 #033603, inset -1px -1px 0 #b6ffb6;
+    transform:translate(1px,1px);
+  }
+  @keyframes bpulse{
+    0%,100%{ box-shadow: inset -1px -1px 0 #033603, inset 1px 1px 0 #b6ffb6, 4px 4px 0 rgba(0,0,0,0.6), 0 0 0 rgba(125,255,125,0); }
+    50%{ box-shadow: inset -1px -1px 0 #033603, inset 1px 1px 0 #b6ffb6, 4px 4px 0 rgba(0,0,0,0.6), 0 0 16px rgba(125,255,125,0.55); }
+  }
+
+  #foot{
+    margin-top:26px;
+    font-size:15px;
+    color:#3fa93f;
+  }
+  .cursor{ background:#7dff7d; color:#071307; animation:blink 1s steps(2) infinite }
+  @keyframes blink{ 50%{opacity:0} }
+</style>
+</head>
+<body>
+<div id="crt">
+  <div id="screen">
+    <div id="post">
+      <pre><span class="dim">VM-BIOS 4.7.3  (c) 1996-1998 Virtual Fabrication Corp.</span>
+
+Testing base memory ......... 640K OK
+Testing extended memory ..... 32,768K OK
+Initializing CRT driver ..... [OK]
+Initializing NET bridge ..... [OK]
+Scanning storage ............ C: 384MB (simulated)
+
+No bootable media in drive A:
+Falling back to drive C:
+Boot record found: <span class="dim">BOOT.BIN</span></pre>
+
+      <div id="bootRow">
+        <span class="lbl">&gt;</span>
+        <a id="bootBtn" href="VMOS4.7.html">boot.bin</a>
+        <span class="cursor">&nbsp;</span>
+      </div>
+
+      <div id="foot">Press the button, or nothing happens. This drive does not auto-boot.</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
