@@ -54,8 +54,6 @@ That said, a few things in here are real:
 * **No persistence:** refreshing the page wipes all simulated filesystem changes and resets the resource governor. This is by design, not a bug, but worth knowing before you write anything you care about into NOTEPAD (if one were to do that for some reason).
 * **Font fallback:** The `VT323` font is referenced via `local('VT323')` with no bundled fallback. If you don't have it installed system-wide, it silently falls back to Courier New and the CRT look is noticeably less good.
 * **Search bottleneck:** NETLINK's search quality is bottlenecked by DuckDuckGo's Instant Answer API, which returns rich results for encyclopedia-shaped queries and very little for anything else.
-* **Governor curve is hand-tuned:** the CPU load-to-speed curve is a plausible-feeling three-piece function, not derived from an actual queueing model. It's tuned to feel right, not to be right.
-
 ---
 
 ## DISCLAIMER ⚠️
