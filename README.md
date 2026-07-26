@@ -40,8 +40,6 @@ That said, a couple of things in here are real:
 * **No persistence:** refreshing the page wipes all simulated filesystem changes. This is by design, not a bug, but worth knowing before you write anything you care about into PAD (if one were to do that for some reason).
 * **Font fallback:** The `VT323` font is referenced via `local('VT323')` with no bundled fallback. If you don't have it installed system-wide, it silently falls back to Courier New and the CRT look is noticeably less good.
 * **Search bottleneck:** NETLINK's search quality is bottlenecked by DuckDuckGo's Instant Answer API, which returns rich results for encyclopedia-shaped queries and very little for anything else.
-* **Single file complexity:** It's a single ~2,200-line HTML file. Great for portability, bad for anyone trying to extend it—splitting into modules would be the first real refactor if this grows further.
-* **Query state bug:** Each search query can only be used once for some reason, haven't found the problem yet. Resets on refresh.
 
 ---
 
