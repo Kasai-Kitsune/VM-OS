@@ -4,7 +4,7 @@ A single-file, single-page fake retro OS. Boots like a late-90s VM-BIOS, drops y
 
 No build step, no dependencies, no backend. Open the HTML file in a browser and it runs.
 
-The fixed disk's actuator chatter is emulated too, driven off real seek events on the virtual drive rather than a canned loop. If the clicking gets old, click the HD indicator in the taskbar tray (bottom right) to mute it; the amber/red LED keeps reporting drive activity regardless of whether the sound is on.
+## **The fixed disk's actuator chatter is emulated too, driven off real seek events on the virtual drive rather than a canned loop. If the clicking gets old, click the HD indicator in the taskbar tray (bottom right) to mute it; the amber/red LED keeps reporting drive activity regardless of whether the sound is on.**
 
 ---
 
@@ -54,6 +54,7 @@ That said, a few things in here are real:
 * **No persistence:** refreshing the page wipes all simulated filesystem changes and resets the resource governor. This is by design, not a bug, but worth knowing before you write anything you care about into NOTEPAD (if one were to do that for some reason).
 * **Font fallback:** The `VT323` font is referenced via `local('VT323')` with no bundled fallback. If you don't have it installed system-wide, it silently falls back to Courier New and the CRT look is noticeably less good.
 * **Search bottleneck:** NETLINK's search quality is bottlenecked by DuckDuckGo's Instant Answer API, which returns rich results for encyclopedia-shaped queries and very little for anything else.
+
 ---
 
 ## DISCLAIMER ⚠️
