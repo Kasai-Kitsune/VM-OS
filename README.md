@@ -57,6 +57,10 @@ That said, a few things in here are real:
 
 ---
 
+## 📖 The two files in foundational files are emulators with an attached workbench that I had to build independently before I could integrate them into the main project. One is a fictional chip with a very precise specs albeit; and the other is a HDD.
+
+---
+
 ## DISCLAIMER ⚠️
 
 As I said, this is completely fake—it's a toy, a convincing fake/simulation. Any text displayed by it should not be taken seriously. I strongly discourage trying to use it for anything important.
