@@ -57,7 +57,9 @@ That said, a few things in here are real:
 
 ---
 
-## 📖 The two files in foundational files are emulators with an attached workbench that I had to build independently before I could integrate them into the main project. Vulp33 is my fictional CPU chip, with very precise specs albeit; and the other is the HDD.
+## foundational files section 📖
+
+The two files in foundational files are emulators with an attached workbench that I had to build independently before I could integrate them into the main project. Vulp33 is my fictional CPU chip, with very precise specs albeit; and the other is the HDD. They have already been integrated with the main file and are not required for it to run.
 
 ---
 
