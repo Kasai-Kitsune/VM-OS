@@ -1,0 +1,1569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VULP-33 · Cycle-Accurate Diagnostic Bench</title>
+<style>
+  :root{
+    --bg:#0a0e0d; --panel:#111917; --panel2:#0d1412; --edge:#1e2c28;
+    --grn:#5cffb1; --grn-dim:#2f7a5a; --amb:#ffcc66; --red:#ff6b6b;
+    --blu:#6bc7ff; --txt:#b8d4c9; --txt-dim:#5f7c72; --hi:#eafff5;
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--mono);font-size:13px}
+  body{padding:14px;background-image:radial-gradient(circle at 50% -10%,#12201b 0%,#0a0e0d 60%)}
+  h1{font-size:15px;letter-spacing:3px;margin:0;color:var(--grn);text-transform:uppercase;font-weight:600}
+  .sub{color:var(--txt-dim);font-size:11px;letter-spacing:1px;margin-top:2px}
+  header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid var(--edge);padding-bottom:10px;margin-bottom:12px}
+  header .badge{border:1px solid var(--grn-dim);color:var(--grn);padding:3px 8px;border-radius:3px;font-size:10px;letter-spacing:2px}
+  .grid{display:grid;grid-template-columns:270px 1fr 340px;gap:12px;align-items:start}
+  .panel{background:var(--panel);border:1px solid var(--edge);border-radius:6px;padding:10px;box-shadow:inset 0 0 30px #00000040}
+  .panel > .ttl{font-size:10px;letter-spacing:2px;color:var(--txt-dim);text-transform:uppercase;margin:-2px 0 8px;border-bottom:1px dashed var(--edge);padding-bottom:5px}
+  .col{display:flex;flex-direction:column;gap:12px}
+
+  /* registers */
+  .reg-row{display:grid;grid-template-columns:34px 1fr auto;gap:8px;align-items:center;padding:2px 0}
+  .reg-row.special{border-top:1px dashed var(--edge);margin-top:4px;padding-top:6px}
+  .reg-name{color:var(--grn-dim);font-weight:600}
+  .reg-hex{color:var(--hi);letter-spacing:1px;font-size:15px;transition:color .1s,background .1s;padding:1px 4px;border-radius:3px}
+  .reg-hex.changed{color:#0a0e0d;background:var(--grn)}
+  .reg-dec{color:var(--txt-dim);font-size:11px;text-align:right}
+
+  /* flags + leds */
+  .leds{display:flex;flex-wrap:wrap;gap:6px}
+  .led{display:flex;flex-direction:column;align-items:center;gap:3px;width:30px}
+  .led-dot{width:14px;height:14px;border-radius:50%;background:#0c1512;border:1px solid var(--edge);box-shadow:inset 0 0 4px #000}
+  .led.on .led-dot{background:var(--grn);border-color:var(--grn);box-shadow:0 0 8px var(--grn),0 0 2px #fff inset}
+  .led-lbl{font-size:9px;color:var(--txt-dim);letter-spacing:1px}
+  .led.on .led-lbl{color:var(--grn)}
+
+  /* pipeline */
+  .pipe{display:flex;gap:6px;align-items:center;margin-top:4px}
+  .pstage{flex:1;text-align:center;padding:6px 2px;border:1px solid var(--edge);border-radius:4px;font-size:10px;letter-spacing:1px;color:var(--txt-dim);background:var(--panel2)}
+  .pstage.on{color:#0a0e0d;background:var(--amb);border-color:var(--amb);box-shadow:0 0 8px var(--amb)}
+  .parrow{color:var(--txt-dim)}
+
+  /* gauges */
+  .gauge{display:grid;grid-template-columns:1fr auto;gap:4px 8px;font-size:12px}
+  .gauge .k{color:var(--txt-dim)}
+  .gauge .v{color:var(--hi);text-align:right;letter-spacing:.5px}
+  .state{font-weight:700;letter-spacing:2px}
+  .st-run{color:var(--grn)} .st-halt{color:var(--amb)} .st-stop{color:var(--txt-dim)} .st-fault{color:var(--red)}
+
+  /* cr0 bits */
+  .bits{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+  .bit{font-size:9px;letter-spacing:1px;color:var(--txt-dim);border:1px solid var(--edge);border-radius:3px;padding:3px 5px;background:var(--panel2)}
+  .bit.on{color:var(--blu);border-color:var(--blu);box-shadow:0 0 6px #6bc7ff40}
+
+  /* controls */
+  .ctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  button{font-family:var(--mono);font-size:11px;letter-spacing:1px;color:var(--txt);background:var(--panel2);border:1px solid var(--edge);border-radius:4px;padding:7px 12px;cursor:pointer;transition:.12s}
+  button:hover{border-color:var(--grn-dim);color:var(--grn)}
+  button.primary{border-color:var(--grn-dim);color:var(--grn)}
+  button.primary:hover{background:var(--grn);color:#0a0e0d}
+  .irqbtn{padding:5px 7px;font-size:10px}
+  select,input[type=text]{font-family:var(--mono);font-size:11px;color:var(--txt);background:var(--panel2);border:1px solid var(--edge);border-radius:4px;padding:6px}
+  label.inl{color:var(--txt-dim);font-size:11px}
+
+  /* source editor */
+  textarea{width:100%;height:340px;resize:vertical;font-family:var(--mono);font-size:12px;line-height:1.45;color:var(--hi);background:#070b0a;border:1px solid var(--edge);border-radius:5px;padding:10px;letter-spacing:.3px;tab-size:4}
+
+  /* disasm */
+  #disasm{max-height:180px;overflow:auto;font-size:11px}
+  .dis-row{display:flex;gap:8px;padding:1px 4px;white-space:pre;border-radius:2px}
+  .dis-row.cur{background:#173a2c;box-shadow:inset 2px 0 0 var(--grn)}
+  .dis-addr{color:var(--grn-dim)}
+  .dis-bytes{color:var(--txt-dim)}
+  .dis-mnem{color:var(--hi)}
+
+  /* hex viewer */
+  #hexview{font-size:11px;line-height:1.5;overflow:auto}
+  .hx-row{white-space:pre;display:flex;gap:10px}
+  .hx-addr{color:var(--grn-dim)}
+  .hx-bytes{color:var(--txt)}
+  .hx-bytes .hx-ip{background:var(--grn);color:#0a0e0d;border-radius:2px}
+  .hx-bytes .hx-sp{background:var(--amb);color:#0a0e0d;border-radius:2px}
+  .hx-ascii{color:var(--txt-dim)}
+
+  /* tty */
+  #tty{height:90px;overflow:auto;white-space:pre-wrap;background:#070b0a;border:1px solid var(--edge);border-radius:5px;padding:8px;color:var(--grn);font-size:12px;text-shadow:0 0 4px var(--grn-dim)}
+
+  /* log */
+  #log{height:150px;overflow:auto;font-size:11px;line-height:1.5;background:#070b0a;border:1px solid var(--edge);border-radius:5px;padding:8px}
+  .log-info{color:var(--txt-dim)} .log-ok{color:var(--grn)} .log-irq{color:var(--blu)} .log-fault{color:var(--red)}
+
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  a.help{color:var(--grn-dim);font-size:10px;text-decoration:none}
+  .foot{color:var(--txt-dim);font-size:10px;margin-top:14px;text-align:center;letter-spacing:1px;border-top:1px solid var(--edge);padding-top:10px}
+  .hint{color:var(--txt-dim);font-size:10px;margin-top:6px;line-height:1.5}
+
+  /* --- bench refresh: headline gauges, bars, button states, responsive --- */
+  header .badge.st-run{border-color:var(--grn);color:var(--grn);box-shadow:0 0 8px #5cffb140}
+  header .badge.st-halt{border-color:var(--amb);color:var(--amb);box-shadow:0 0 8px #ffcc6640}
+  header .badge.st-stop{border-color:var(--edge);color:var(--txt-dim);box-shadow:none}
+  header .badge.st-fault{border-color:var(--red);color:var(--red);box-shadow:0 0 10px #ff6b6b55}
+
+  .ggrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .gbig{background:#070b0a;border:1px solid var(--edge);border-radius:6px;padding:8px}
+  .gbig .lbl{font-size:9px;color:var(--txt-dim);text-transform:uppercase;letter-spacing:1px}
+  .gbig .val{font-size:19px;color:var(--grn);font-weight:700;line-height:1.15;letter-spacing:.5px}
+  .gbig .val small{font-size:10px;color:var(--txt-dim);font-weight:400}
+  .gbig.amber .val{color:var(--amb)} .gbig.blue .val{color:var(--blu)}
+  .mbar{height:5px;background:#0a120f;border-radius:3px;margin-top:5px;overflow:hidden}
+  .mbar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--grn-dim),var(--grn));transition:width .15s}
+  .mbar.hot>i{background:linear-gradient(90deg,var(--amb),var(--red))}
+
+  button.warn{border-color:var(--amb);color:var(--amb)}
+  button.warn:hover:not(:disabled){background:var(--amb);color:#0a0e0d}
+  button:disabled{opacity:.32;cursor:not-allowed}
+  button:disabled:hover{border-color:var(--edge);color:var(--txt)}
+
+  .clkrate{font-size:9px;color:var(--txt-dim);letter-spacing:1px;margin-top:4px}
+  .clkrate b{color:var(--grn);font-weight:600}
+
+  @media(max-width:1080px){ .grid{grid-template-columns:1fr} }
+  @media(max-width:520px){ .ggrid{grid-template-columns:1fr} textarea{height:220px} }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>VULP-33 &nbsp;Microprocessor</h1>
+    <div class="sub">cycle-accurate emulation bench · 32-bit CISC · 33 MHz · industrial/embedded class</div>
+  </div>
+  <div class="badge" id="cpustate">STOPPED</div>
+</header>
+
+<div class="grid">
+
+  <!-- LEFT COLUMN : register file, flags, special regs, pipeline -->
+  <div class="col">
+    <div class="panel">
+      <div class="ttl">Register File</div>
+      <div id="regs"></div>
+    </div>
+
+    <div class="panel">
+      <div class="ttl">FLAGS</div>
+      <div class="leds" id="flags"></div>
+    </div>
+
+    <div class="panel">
+      <div class="ttl">Control &amp; Interrupt</div>
+      <div class="gauge">
+        <span class="k">INTM (irq mask)</span><span class="v" id="intm">FF</span>
+        <span class="k">CR0</span><span class="v" id="cr0">00000000</span>
+      </div>
+      <div class="bits">
+        <span class="bit" id="cr0_cache">CACHE&nbsp;EN</span>
+        <span class="bit" id="cr0_wait">WAIT&nbsp;OVR</span>
+        <span class="bit" id="cr0_halt">HALT-ON-FAULT</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="ttl">Execution Cycle (fetch ▸ decode ▸ execute)</div>
+      <div class="pipe">
+        <div class="pstage" id="stage_fetch">FETCH</div>
+        <span class="parrow">▸</span>
+        <div class="pstage" id="stage_decode">DECODE</div>
+        <span class="parrow">▸</span>
+        <div class="pstage" id="stage_execute">EXECUTE</div>
+      </div>
+      <div class="gauge" style="margin-top:8px">
+        <span class="k">last opcode</span><span class="v" id="lastop">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER COLUMN : assembler, controls, disasm -->
+  <div class="col">
+    <div class="panel">
+      <div class="ttl">Assembler Source</div>
+      <textarea id="src" spellcheck="false"></textarea>
+      <div class="ctl" style="margin-top:8px">
+        <button class="primary" id="btnLoad">ASSEMBLE&nbsp;&amp;&nbsp;LOAD</button>
+        <button class="primary" id="btnRun">▶ RUN</button>
+        <button id="btnPause">⏸ PAUSE</button>
+        <button id="btnStep">⏭ STEP</button>
+        <button class="warn" id="btnReset">⟲ RESET</button>
+        <button id="btnLoadDemo">demo</button>
+      </div>
+      <div class="ctl" style="margin-top:8px">
+        <label class="inl">speed</label>
+        <select id="speed">
+          <option value="200">single-crawl (200 cyc/frame)</option>
+          <option value="5000">slow (5k/frame)</option>
+          <option value="50000" selected>normal (50k/frame)</option>
+          <option value="rt">real-time (wall-clock 33 MHz)</option>
+          <option value="max">unthrottled (as fast as host allows)</option>
+        </select>
+        <label class="inl">kernel floor</label>
+        <input type="text" id="floor" value="0" size="6" title="writes below this address raise #GP (hex)">
+      </div>
+      <div class="hint">Two-operand forms: <b>MOV/ADD/SUB/…&nbsp;Rd, (Rs | imm | [Rb+disp])</b>.
+        Absolute memory: <b>[0x600]</b>. Special regs: <b>SP BP INTM CR0 FLAGS</b> (via MOV). Labels end with <b>:</b>.</div>
+    </div>
+
+    <div class="panel">
+      <div class="ttl">Disassembly (loaded image)</div>
+      <div id="disasm"></div>
+    </div>
+
+    <div class="panel">
+      <div class="ttl">Console (I/O port 0x01)</div>
+      <div id="tty"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN : clock/cycle gauge, cache, hex, irq, log -->
+  <div class="col">
+    <div class="panel">
+      <div class="ttl">Clock / Cycle Gauge</div>
+      <div class="ggrid">
+        <div class="gbig"><div class="lbl">Effective clock</div><div class="val" id="effmhz">0.0<small> MHz</small></div><div class="mbar" id="effBarWrap"><i id="effBar"></i></div></div>
+        <div class="gbig amber"><div class="lbl">Avg cyc / instr</div><div class="val" id="cpi">0.00</div></div>
+      </div>
+      <div class="gauge" style="margin-top:8px">
+        <span class="k">total cycles</span><span class="v" id="cycles">0</span>
+        <span class="k">instructions</span><span class="v" id="instrs">0</span>
+        <span class="k">sim time @ 33 MHz</span><span class="v" id="simtime">0 ms</span>
+        <span class="k">timer ticks (IRQ0)</span><span class="v" id="ticks">0</span>
+      </div>
+      <div class="clkrate" id="clkrate">target — · achieving <b>0.0 MHz</b></div>
+    </div>
+
+    <div class="panel">
+      <div class="ttl">Unified Cache (2 KiB, direct-mapped, write-through)</div>
+      <div class="gbig blue"><div class="lbl">Hit rate</div><div class="val" id="cache_r">—</div><div class="mbar"><i id="cacheBar"></i></div></div>
+      <div class="gauge" style="margin-top:8px">
+        <span class="k">hits</span><span class="v" id="cache_h">0</span>
+        <span class="k">misses</span><span class="v" id="cache_m">0</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="ttl">Memory Hex Viewer</div>
+      <div class="ctl" style="margin-bottom:6px">
+        <label class="inl">base</label>
+        <input type="text" id="hexaddr" value="1000" size="8">
+        <span class="hint" style="margin:0">green=IP · amber=SP</span>
+      </div>
+      <div id="hexview"></div>
+    </div>
+
+    <div class="panel">
+      <div class="ttl">Interrupt Lines (assert manually)</div>
+      <div class="ctl" id="irqbtns"></div>
+    </div>
+
+    <div class="panel">
+      <div class="ttl">Activity Log</div>
+      <div id="log"></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="foot">VULP-33 · fictional-but-plausible 486-class part · every access routed through a timed two-state bus · emulation core is framework-free and self-contained</div>
+
+<!-- ===================== EMULATION CORE (transplantable) ===================== -->
+<script>/* =============================================================================
+ * VULP-33 Microprocessor — cycle-accurate emulation core
+ * -----------------------------------------------------------------------------
+ * This file is the "chip": Bus + CPU + Assembler, with ZERO dependency on the
+ * DOM or any front-end. It attaches a single object `VULP33` to the global
+ * scope (window in a browser, module.exports under node) so it can be dropped
+ * into another project unchanged.
+ *
+ * Design fidelity notes are inline. Everything routes through the Bus so that
+ * memory/IO timing is a first-class, emergent property, exactly as the spec
+ * demands (see spec §3 and §6).
+ * ===========================================================================*/
+(function (root) {
+  'use strict';
+
+  /* ------------------------------------------------------------------ *
+   * Constants: FLAGS bits, CR0 bits, fault vectors, IRQ vector base
+   * ------------------------------------------------------------------ */
+  const FLAG = {
+    CF: 0, PF: 1, ZF: 2, SF: 3, OF: 4, IF: 5, TF: 6, DF: 7, HF: 8,
+  };
+  const CR0 = {
+    CACHE_EN: 0,          // bit 0  cache enable
+    WAITSTATE_OVR: 1,     // bit 1  wait-state override (test/debug)
+    HALT_ON_FAULT: 31,    // bit 31 halt-on-unhandled-fault
+  };
+  // Fault vectors occupy the low, fixed slots (spec §7: "fixed vectors 0-4").
+  const VEC = { DE: 0, UD: 1, NM: 2, GP: 3, TRAP: 4 };
+  // Hardware IRQ n vectors to (IRQ_BASE + n) — period-authentic PC convention
+  // (IRQ0 -> INT 08h). Software INT imm8 uses vector = imm8 directly.
+  const IRQ_BASE = 8;
+
+  const IVT_BASE = 0x00000000;   // interrupt vector table, 32 entries * 4 bytes
+  const IVT_ENTRIES = 32;
+
+  // Special-register ids used by the MOV<->special encodings (opcodes 0x16/0x17)
+  const SREG = { IP: 0, SP: 1, BP: 2, FLAGS: 3, INTM: 4, CR0: 5 };
+
+  // A fault is signalled by throwing this so the current instruction unwinds
+  // cleanly and step() can vector it, just like real silicon aborting a µ-op.
+  class Fault {
+    constructor(vector, detail) { this.vector = vector; this.detail = detail || ''; }
+  }
+
+  const signext8  = (b) => (b << 24) >> 24;
+  const parity8   = (v) => { v &= 0xFF; v ^= v >> 4; v ^= v >> 2; v ^= v >> 1; return (~v) & 1; };
+
+  /* ================================================================== *
+   * Cache — single unified, direct-mapped, write-through (spec §1)
+   * ------------------------------------------------------------------ *
+   * We model tags/validity only (not data) because the authoritative bytes
+   * always live in RAM under a write-through policy; the cache exists purely
+   * to produce the real hit/miss cycle penalty the spec insists on.
+   * ================================================================== */
+  class Cache {
+    constructor(sizeBytes, lineBytes) {
+      this.lineBytes = lineBytes;
+      this.numLines = (sizeBytes / lineBytes) | 0;
+      this.tags = new Int32Array(this.numLines).fill(-1);
+      this.hits = 0;
+      this.misses = 0;
+    }
+    reset() { this.tags.fill(-1); this.hits = 0; this.misses = 0; }
+    _index(addr) { const l = (addr / this.lineBytes) | 0; return { line: l % this.numLines, tag: l }; }
+    // returns true on hit; on a miss the line is (re)filled.
+    access(addr) {
+      const { line, tag } = this._index(addr);
+      if (this.tags[line] === tag) { this.hits++; return true; }
+      this.tags[line] = tag; this.misses++; return false;
+    }
+    present(addr) { const { line, tag } = this._index(addr); return this.tags[line] === tag; }
+    invalidate() { this.tags.fill(-1); }
+  }
+
+  /* ================================================================== *
+   * Bus — the timed interface between core and the world (spec §3)
+   * ------------------------------------------------------------------ *
+   * Every access runs the two-state T1/T2 cycle and genuinely accumulates
+   * cycles into `pending`, which the CPU drains after each transaction.
+   * Peripherals may stretch a cycle via insertWaitStates(); a slow device is
+   * ALLOWED to be slow and the core really stalls for it.
+   * ================================================================== */
+  class Bus {
+    constructor(opts) {
+      opts = opts || {};
+      this.ramSize = opts.ramSize || 0x2000000;          // 32 MiB flat RAM
+      this.mem = new Uint8Array(this.ramSize);
+      this.dv = new DataView(this.mem.buffer);
+      this.cache = new Cache(opts.cacheSize || 2048, opts.lineBytes || 16);
+      this.ports = new Map();                            // port -> {read, write}
+      this.irqLines = 0;                                 // bit n set == IRQ n asserted
+      this.pending = 0;                                  // cycles accrued this transaction
+      this.cacheEnabled = false;                         // mirrors CR0.bit0
+      this.waitOverride = false;                         // mirrors CR0.bit1
+      this.onBusEvent = null;                            // optional trace hook
+    }
+    reset() {
+      this.mem.fill(0);
+      this.cache.reset();
+      this.irqLines = 0;
+      this.pending = 0;
+    }
+    // ---- cycle accounting helpers ----
+    _spend(n) { this.pending += n; }
+    insertWaitStates(n) { if (!this.waitOverride) this._spend(n); }  // spec: CR0.1 override
+    takeCycles() { const c = this.pending; this.pending = 0; return c; }
+
+    _addr(a) { return (a >>> 0) % this.ramSize; }
+
+    // A single memory transaction: T1 (address out) + T2 (data). Cache hit
+    // short-circuits the external bus; a miss pays the fill penalty; writes are
+    // write-through so they always drive the bus.
+    _memCycle(addr, isWrite) {
+      if (this.cacheEnabled && !isWrite && this.cache.access(addr)) {
+        this._spend(1);                 // cache hit: 0-1 additional cycles (spec §6)
+        return;
+      }
+      if (this.cacheEnabled && isWrite) this.cache.access(addr); // write-through refill/keep
+      this._spend(2);                   // T1 + T2 to external memory (miss/uncached/write)
+    }
+
+    // ---------- memory reads (little-endian) ----------
+    read8 (a) { a = this._addr(a); this._memCycle(a, false); return this.dv.getUint8(a); }
+    read16(a) { a = this._addr(a); this._memCycle(a, false); return this.dv.getUint16(a, true); }
+    read32(a) { a = this._addr(a); this._memCycle(a, false); return this.dv.getUint32(a, true) >>> 0; }
+
+    // ---------- memory writes (write-through) ----------
+    // NOTE: writes are unchecked here; access-rule enforcement (kernel floor ->
+    // #GP) lives in the CPU, which owns the protection policy (spec §7).
+    write8 (a, v) { a = this._addr(a); this._memCycle(a, true); this.dv.setUint8 (a, v & 0xFF); }
+    write16(a, v) { a = this._addr(a); this._memCycle(a, true); this.dv.setUint16(a, v & 0xFFFF, true); }
+    write32(a, v) { a = this._addr(a); this._memCycle(a, true); this.dv.setUint32(a, v >>> 0, true); }
+
+    // Loader path: bypasses timing + protection (used to place the image / IVT),
+    // exactly like an external programmer writing the part before power-on.
+    poke8 (a, v) { this.dv.setUint8 (this._addr(a), v & 0xFF); }
+    poke32(a, v) { this.dv.setUint32(this._addr(a), v >>> 0, true); }
+    peek8 (a)    { return this.dv.getUint8(this._addr(a)); }
+    peek32(a)    { return this.dv.getUint32(this._addr(a), true) >>> 0; }
+
+    // ---------- separate 16-bit I/O port space ----------
+    mapPort(port, dev) { this.ports.set(port & 0xFFFF, dev); }
+    ioRead(port) {
+      port &= 0xFFFF;
+      this._spend(2);                          // I/O bus cycle (slow by design)
+      const d = this.ports.get(port);
+      return d && d.read ? (d.read(port, this) & 0xFFFFFFFF) >>> 0 : 0xFFFFFFFF >>> 0;
+    }
+    ioWrite(port, val) {
+      port &= 0xFFFF;
+      this._spend(2);
+      const d = this.ports.get(port);
+      if (d && d.write) d.write(port, val >>> 0, this);
+    }
+
+    // ---------- interrupt lines ----------
+    raiseIRQ(line) { this.irqLines |= (1 << (line & 7)); }
+    ackIRQ(line)   { this.irqLines &= ~(1 << (line & 7)); }
+  }
+
+  /* ================================================================== *
+   * ALU — one shared helper per op that computes result AND all flags
+   * together, so every instruction that calls it inherits correct flag
+   * behaviour automatically (spec §4).
+   * ------------------------------------------------------------------ *
+   * Each returns { r, cf, zf, sf, of, pf }. The dispatcher applies them.
+   * ================================================================== */
+  const ALU = {
+    _std(r, cf, of) {
+      r >>>= 0;
+      return { r, cf: cf ? 1 : 0, zf: r === 0 ? 1 : 0, sf: (r >>> 31) & 1, of: of ? 1 : 0, pf: parity8(r) };
+    },
+    add(a, b, carry) {
+      a >>>= 0; b >>>= 0; carry = carry ? 1 : 0;
+      const sum = a + b + carry;
+      const r = sum >>> 0;
+      const cf = sum > 0xFFFFFFFF;
+      const of = (~(a ^ b) & (a ^ r) & 0x80000000) !== 0;
+      return this._std(r, cf, of);
+    },
+    sub(a, b, borrow) {
+      a >>>= 0; b >>>= 0; borrow = borrow ? 1 : 0;
+      const diff = a - b - borrow;
+      const r = diff >>> 0;
+      const cf = (b + borrow) > a;                     // unsigned borrow
+      const of = ((a ^ b) & (a ^ r) & 0x80000000) !== 0;
+      return this._std(r, cf, of);
+    },
+    and(a, b) { return this._std((a & b) >>> 0, false, false); },
+    or (a, b) { return this._std((a | b) >>> 0, false, false); },
+    xor(a, b) { return this._std((a ^ b) >>> 0, false, false); },
+    not(a)    { return { r: (~a) >>> 0 }; },            // NOT does not affect flags
+    shl(a, n) {
+      a >>>= 0; n &= 31; if (n === 0) return this._std(a, (this._lastCF|0), false, false);
+      const cf = ((a >>> (32 - n)) & 1) === 1;
+      const r = (a << n) >>> 0;
+      const of = n === 1 ? (((r >>> 31) & 1) ^ (cf ? 1 : 0)) === 1 : false;
+      return this._std(r, cf, of);
+    },
+    shr(a, n) {
+      a >>>= 0; n &= 31; if (n === 0) return this._std(a, false, false);
+      const cf = ((a >>> (n - 1)) & 1) === 1;
+      const r = a >>> n;
+      const of = n === 1 ? ((a >>> 31) & 1) === 1 : false;
+      return this._std(r, cf, of);
+    },
+    sar(a, n) {
+      a |= 0; n &= 31; if (n === 0) return this._std(a >>> 0, false, false);
+      const cf = ((a >>> (n - 1)) & 1) === 1;
+      const r = (a >> n) >>> 0;                          // arithmetic (sign-propagating)
+      return this._std(r, cf, false);
+    },
+    rol(a, n) {
+      a >>>= 0; n &= 31; if (n === 0) return this._std(a, false, false);
+      const r = ((a << n) | (a >>> (32 - n))) >>> 0;
+      const cf = (r & 1) === 1;
+      return this._std(r, cf, false);
+    },
+    ror(a, n) {
+      a >>>= 0; n &= 31; if (n === 0) return this._std(a, false, false);
+      const r = ((a >>> n) | (a << (32 - n))) >>> 0;
+      const cf = ((r >>> 31) & 1) === 1;
+      return this._std(r, cf, false);
+    },
+    mulu(a, b) {
+      const p = BigInt(a >>> 0) * BigInt(b >>> 0);
+      const lo = Number(p & 0xFFFFFFFFn) >>> 0;
+      const hi = Number((p >> 32n) & 0xFFFFFFFFn) >>> 0;
+      return { lo, hi, overflow: hi !== 0 };
+    },
+    muls(a, b) {
+      const p = BigInt(a | 0) * BigInt(b | 0);
+      const mask = (1n << 64n) - 1n;
+      const u = p & mask;
+      const lo = Number(u & 0xFFFFFFFFn) >>> 0;
+      const hi = Number((u >> 32n) & 0xFFFFFFFFn) >>> 0;
+      // overflow if the high half is not just sign-extension of the low half
+      const signExt = (lo >>> 31) ? 0xFFFFFFFF : 0x00000000;
+      return { lo, hi, overflow: hi !== signExt };
+    },
+  };
+
+  /* ================================================================== *
+   * CPU — register file, FLAGS, fetch/decode/execute, timing, faults
+   * ================================================================== */
+  class CPU {
+    constructor(bus) {
+      this.bus = bus;
+      this.R = new Uint32Array(8);          // R0..R7
+      this.IP = 0; this.SP = 0; this.BP = 0;
+      this.FLAGS = 0; this.INTM = 0; this.CR0v = 0;
+      this.halted = false;
+      this.faulted = false;                 // set when halt-on-fault traps the core
+      this.kernelFloor = 0;                 // writes below this -> #GP (0 disables)
+      this.totalCycles = 0;
+      this.instrCount = 0;
+      this.stage = 'idle';                  // fetch/decode/execute — for the panel
+      this.lastMnemonic = '';
+      this.log = null;                      // optional (msg,kind)=>void hook
+      this.table = this._buildTable();
+      this._opStartIP = 0;
+    }
+
+    /* ---- convenience accessors ---- */
+    getFlag(b) { return (this.FLAGS >>> b) & 1; }
+    setFlag(b, v) { if (v) this.FLAGS |= (1 << b); else this.FLAGS &= ~(1 << b); this.FLAGS >>>= 0; }
+    _syncCR0() {
+      this.bus.cacheEnabled = ((this.CR0v >>> CR0.CACHE_EN) & 1) === 1;
+      this.bus.waitOverride = ((this.CR0v >>> CR0.WAITSTATE_OVR) & 1) === 1;
+    }
+
+    reset(entry) {
+      this.R.fill(0);
+      this.IP = entry >>> 0; this.SP = 0; this.BP = 0;
+      this.FLAGS = 0; this.INTM = 0; this.CR0v = 0;
+      this.halted = false; this.faulted = false;
+      this.totalCycles = 0; this.instrCount = 0;
+      this.stage = 'idle'; this.lastMnemonic = '';
+      this.bus.cache.invalidate();
+      this._syncCR0();
+    }
+
+    /* ---- instruction stream fetch (advances IP, uses cache path) ---- */
+    fetch8()  { const v = this.bus.read8(this.IP);  this.IP = (this.IP + 1) >>> 0; return v; }
+    fetch16() { const v = this.bus.read16(this.IP); this.IP = (this.IP + 2) >>> 0; return v; }
+    fetch32() { const v = this.bus.read32(this.IP); this.IP = (this.IP + 4) >>> 0; return v >>> 0; }
+
+    /* ---- stack ---- */
+    push32(v) { this.SP = (this.SP - 4) >>> 0; this._wr32(this.SP, v); }
+    pop32()   { const v = this.bus.read32(this.SP); this.SP = (this.SP + 4) >>> 0; return v >>> 0; }
+
+    /* ---- protected write (kernel-floor rule -> #GP) ---- */
+    _wr8 (a, v) { if ((a >>> 0) < this.kernelFloor) throw new Fault(VEC.GP, 'write below kernel floor'); this.bus.write8 (a, v); }
+    _wr16(a, v) { if ((a >>> 0) < this.kernelFloor) throw new Fault(VEC.GP, 'write below kernel floor'); this.bus.write16(a, v); }
+    _wr32(a, v) { if ((a >>> 0) < this.kernelFloor) throw new Fault(VEC.GP, 'write below kernel floor'); this.bus.write32(a, v); }
+
+    /* ---- mod-reg-rm decode (spec §4) ---- */
+    readModRM() { const b = this.fetch8(); return { mode: (b >>> 6) & 3, reg: (b >>> 3) & 7, rm: b & 7 }; }
+    // Resolve the *source* operand described by a modrm byte. Returns the value
+    // and (for memory forms) its effective address. Consumes disp/imm bytes.
+    resolveSrc(m) {
+      switch (m.mode) {
+        case 0: return { val: this.R[m.rm] >>> 0, addr: null };                 // reg
+        case 1: { const d = signext8(this.fetch8()); const a = (this.R[m.rm] + d) >>> 0; return { val: this.bus.read32(a), addr: a }; }
+        case 2: { const d = this.fetch32() | 0;      const a = (this.R[m.rm] + d) >>> 0; return { val: this.bus.read32(a), addr: a }; }
+        case 3: return { val: this.fetch32() >>> 0, addr: null };               // imm32
+      }
+    }
+    // Resolve just the effective address of a memory modrm operand (LEA / stores).
+    resolveAddr(m) {
+      if (m.mode === 1) { const d = signext8(this.fetch8()); return (this.R[m.rm] + d) >>> 0; }
+      if (m.mode === 2) { const d = this.fetch32() | 0;      return (this.R[m.rm] + d) >>> 0; }
+      throw new Fault(VEC.UD, 'memory operand required');
+    }
+
+    applyFlags(f) {
+      if ('cf' in f) this.setFlag(FLAG.CF, f.cf);
+      if ('pf' in f) this.setFlag(FLAG.PF, f.pf);
+      if ('zf' in f) this.setFlag(FLAG.ZF, f.zf);
+      if ('sf' in f) this.setFlag(FLAG.SF, f.sf);
+      if ('of' in f) this.setFlag(FLAG.OF, f.of);
+    }
+
+    addCycles(n) { this._extra += n; }
+
+    _readSReg(id) {
+      switch (id) {
+        case SREG.IP: return this.IP; case SREG.SP: return this.SP; case SREG.BP: return this.BP;
+        case SREG.FLAGS: return this.FLAGS; case SREG.INTM: return this.INTM; case SREG.CR0: return this.CR0v;
+      }
+      throw new Fault(VEC.UD, 'bad sreg');
+    }
+    _writeSReg(id, v) {
+      v >>>= 0;
+      switch (id) {
+        case SREG.IP: this.IP = v; break; case SREG.SP: this.SP = v; break; case SREG.BP: this.BP = v; break;
+        case SREG.FLAGS: this.FLAGS = v; break; case SREG.INTM: this.INTM = v; break;
+        case SREG.CR0: this.CR0v = v; this._syncCR0(); break;
+        default: throw new Fault(VEC.UD, 'bad sreg');
+      }
+    }
+
+    /* ================= single step ================= */
+    step() {
+      if (this.faulted) return 0;
+      // Sample interrupts between instructions (also wakes a HLTed core).
+      this._serviceInterrupts();
+      if (this.halted) { this.totalCycles += 1; return 1; }  // idle clock while halted
+
+      this._extra = 0;
+      this._opStartIP = this.IP;
+      this.stage = 'fetch';
+      let cycles;
+      try {
+        const opcode = this.fetch8();
+        const e = this.table[opcode];
+        this.stage = 'decode';
+        if (!e) throw new Fault(VEC.UD, 'opcode 0x' + opcode.toString(16));
+        this.lastMnemonic = e.mnemonic;
+        this.stage = 'execute';
+        e.exec(this);
+        cycles = e.cycles + this._extra + this.bus.takeCycles();
+      } catch (err) {
+        if (err instanceof Fault) {
+          cycles = 6 + this.bus.takeCycles();   // fault detection/vector overhead
+          this.IP = this._opStartIP;            // faulting IP is what gets pushed
+          this._vector(err.vector, true, err.detail);
+          cycles += this.bus.takeCycles();
+        } else { throw err; }
+      }
+      this.totalCycles += cycles;
+      this.instrCount++;
+      return cycles;
+    }
+
+    /* ---- deliver an interrupt/fault through the vector table ---- */
+    _vector(vector, isFault, detail) {
+      const handler = this.bus.peek32(IVT_BASE + vector * 4);   // read IVT untimed
+      if (handler === 0) {                                      // unhandled
+        if (this.log) this.log('unhandled vector ' + vector + (detail ? ' (' + detail + ')' : ''), 'fault');
+        if ((this.CR0v >>> CR0.HALT_ON_FAULT) & 1) {            // CR0.31 == 1 -> halt debuggable
+          this.faulted = true; this.halted = true; this.stage = 'faulted';
+        } else {                                                // CR0.31 == 0 -> reset core
+          if (this.log) this.log('core reset by unhandled fault', 'fault');
+          this.reset(this._opStartIP & 0);                      // reset to 0
+        }
+        return;
+      }
+      this.push32(this.FLAGS);
+      this.push32(this.IP);
+      this.setFlag(FLAG.IF, 0);           // interrupts off inside handler
+      this.setFlag(FLAG.TF, 0);           // and single-step off
+      this.setFlag(FLAG.HF, 0);           // clear halt-pending
+      this.halted = false;
+      this.IP = handler >>> 0;
+      if (this.log) this.log((isFault ? 'fault ' : 'INT ') + 'vector ' + vector + ' -> 0x' + handler.toString(16), isFault ? 'fault' : 'irq');
+    }
+
+    _serviceInterrupts() {
+      if (this.faulted) return;
+      if (!this.getFlag(FLAG.IF)) return;
+      const pending = this.bus.irqLines & this.INTM & 0xFF;
+      if (!pending) return;
+      // lowest line number == highest priority (spec §5)
+      for (let line = 0; line < 8; line++) {
+        if (pending & (1 << line)) {
+          this.bus.ackIRQ(line);
+          this._vector(IRQ_BASE + line, false, 'IRQ' + line);
+          return;
+        }
+      }
+    }
+
+    /* =============================================================== *
+     * Decode table — flat 256-entry dispatch (spec §4).
+     * Each execute() pulls whatever operand bytes it needs from the
+     * stream, so the table stays a pure {mnemonic, exec, cycles} map.
+     * =============================================================== */
+    _buildTable() {
+      const t = new Array(256).fill(null);
+      const def = (op, mnemonic, cycles, exec) => { t[op] = { mnemonic, cycles, exec }; };
+
+      // Two-operand helper: dest = R[reg], src per modrm mode. `fn(dstVal,srcVal)`
+      // returns {r, ...flags}; writeback controlled by `store`.
+      const two = (op, mnemonic, base, fn, opts) => {
+        opts = opts || {};
+        def(op, mnemonic, base, (c) => {
+          const m = c.readModRM();
+          const s = c.resolveSrc(m);
+          if (s.addr !== null) c.addCycles(2);        // register-memory ALU penalty (spec §6)
+          const dst = c.R[m.reg] >>> 0;
+          const res = fn(dst, s.val, c);
+          if (res && 'cf' in res) c.applyFlags(res);
+          if (!opts.noWrite && res && 'r' in res) c.R[m.reg] = res.r >>> 0;
+        });
+      };
+
+      /* ---------------- misc / no-operand ---------------- */
+      def(0x00, 'NOP',   1, () => {});
+      def(0x01, 'HLT',   1, (c) => { c.halted = true; c.setFlag(FLAG.HF, 1); });
+      def(0x02, 'CLC',   1, (c) => c.setFlag(FLAG.CF, 0));
+      def(0x03, 'STC',   1, (c) => c.setFlag(FLAG.CF, 1));
+      def(0x04, 'CMC',   1, (c) => c.setFlag(FLAG.CF, c.getFlag(FLAG.CF) ^ 1));
+      def(0x05, 'CLI',   1, (c) => c.setFlag(FLAG.IF, 0));
+      def(0x06, 'STI',   1, (c) => c.setFlag(FLAG.IF, 1));
+      def(0x07, 'PUSHF', 3, (c) => c.push32(c.FLAGS));
+      def(0x08, 'POPF',  3, (c) => { c.FLAGS = c.pop32(); });
+      def(0x09, 'IRET', 12, (c) => { c.IP = c.pop32(); c.FLAGS = c.pop32(); });
+      def(0x0A, 'RET',   5, (c) => { c.IP = c.pop32(); });
+      def(0x0B, 'LEAVE', 4, (c) => { c.SP = c.BP >>> 0; c.BP = c.pop32(); });
+
+      /* ---------------- data movement ---------------- */
+      def(0x10, 'MOV', 1, (c) => {                     // MOV r, (r|[r+d]|imm)
+        const m = c.readModRM(); const s = c.resolveSrc(m);
+        if (s.addr !== null) c.addCycles(2);
+        c.R[m.reg] = s.val >>> 0;
+      });
+      def(0x11, 'MOV', 2, (c) => {                     // MOV [r+d], r
+        const m = c.readModRM(); const a = c.resolveAddr(m);
+        c.addCycles(2); c._wr32(a, c.R[m.reg]);
+      });
+      def(0x12, 'LEA', 1, (c) => {                     // LEA r, [r+d]
+        const m = c.readModRM(); const a = c.resolveAddr(m); c.R[m.reg] = a >>> 0;
+      });
+      def(0x13, 'XCHG', 2, (c) => {                    // XCHG r, r
+        const m = c.readModRM(); const tmp = c.R[m.reg]; c.R[m.reg] = c.R[m.rm]; c.R[m.rm] = tmp;
+      });
+      def(0x14, 'PUSH', 3, (c) => { const r = c.fetch8() & 7; c.push32(c.R[r]); });
+      def(0x15, 'POP',  3, (c) => { const r = c.fetch8() & 7; c.R[r] = c.pop32(); });
+      def(0x16, 'MOV',  2, (c) => { const r = c.fetch8() & 7; const s = c.fetch8() & 7; c.R[r] = c._readSReg(s) >>> 0; }); // MOV r, sreg
+      def(0x17, 'MOV',  2, (c) => { const s = c.fetch8() & 7; const r = c.fetch8() & 7; c._writeSReg(s, c.R[r]); });      // MOV sreg, r
+      def(0x18, 'ENTER',5, (c) => { const sz = c.fetch32() >>> 0; c.push32(c.BP); c.BP = c.SP >>> 0; c.SP = (c.SP - sz) >>> 0; });
+      def(0x1A, 'MOV',  3, (c) => { const r = c.fetch8() & 7; const a = c.fetch32() >>> 0; c.addCycles(2); c.R[r] = c.bus.read32(a) >>> 0; }); // MOV r, [abs]
+      def(0x1B, 'MOV',  3, (c) => { const a = c.fetch32() >>> 0; const r = c.fetch8() & 7; c.addCycles(2); c._wr32(a, c.R[r]); });            // MOV [abs], r
+
+      /* ---------------- arithmetic / logic ---------------- */
+      two(0x20, 'ADD',  1, (a, b)    => ALU.add(a, b, 0));
+      two(0x21, 'ADC',  1, (a, b, c) => ALU.add(a, b, c.getFlag(FLAG.CF)));
+      two(0x22, 'SUB',  1, (a, b)    => ALU.sub(a, b, 0));
+      two(0x23, 'SBB',  1, (a, b, c) => ALU.sub(a, b, c.getFlag(FLAG.CF)));
+      two(0x24, 'CMP',  1, (a, b)    => ALU.sub(a, b, 0), { noWrite: true });
+      two(0x25, 'AND',  1, (a, b)    => ALU.and(a, b));
+      two(0x26, 'OR',   1, (a, b)    => ALU.or(a, b));
+      two(0x27, 'XOR',  1, (a, b)    => ALU.xor(a, b));
+      two(0x28, 'TEST', 1, (a, b)    => ALU.and(a, b), { noWrite: true });
+      two(0x29, 'SHL',  1, (a, b)    => ALU.shl(a, b));
+      two(0x2A, 'SHR',  1, (a, b)    => ALU.shr(a, b));
+      two(0x2B, 'SAR',  1, (a, b)    => ALU.sar(a, b));
+      two(0x2C, 'ROL',  1, (a, b)    => ALU.rol(a, b));
+      two(0x2D, 'ROR',  1, (a, b)    => ALU.ror(a, b));
+
+      def(0x30, 'INC', 1, (c) => { const r = c.fetch8() & 7; const f = ALU.add(c.R[r], 1, 0); c.R[r] = f.r; c.setFlag(FLAG.ZF, f.zf); c.setFlag(FLAG.SF, f.sf); c.setFlag(FLAG.OF, f.of); c.setFlag(FLAG.PF, f.pf); }); // INC preserves CF
+      def(0x31, 'DEC', 1, (c) => { const r = c.fetch8() & 7; const f = ALU.sub(c.R[r], 1, 0); c.R[r] = f.r; c.setFlag(FLAG.ZF, f.zf); c.setFlag(FLAG.SF, f.sf); c.setFlag(FLAG.OF, f.of); c.setFlag(FLAG.PF, f.pf); });
+      def(0x32, 'NOT', 1, (c) => { const r = c.fetch8() & 7; c.R[r] = (~c.R[r]) >>> 0; });
+
+      // MUL/IMUL/DIV/IDIV use the register pair (reg, (reg+1)&7): low/hi & dividend.
+      const muldivCycles = (a, b) => {
+        const mag = Math.max(a >>> 0, b >>> 0);
+        const bits = mag === 0 ? 1 : (32 - Math.clz32(mag));
+        return Math.min(40, 13 + bits);                // 13..40 by operand magnitude (spec §6)
+      };
+      two(0x33, 'MUL', 13, (a, b, c) => {
+        const m = ALU.mulu(a, b); c.addCycles(muldivCycles(a, b) - 13);
+        c._mulPair(m); return { cf: m.overflow, of: m.overflow };
+      }, { noWrite: true });
+      two(0x34, 'IMUL', 13, (a, b, c) => {
+        const m = ALU.muls(a, b); c.addCycles(muldivCycles(a, b) - 13);
+        c._mulPair(m); return { cf: m.overflow, of: m.overflow };
+      }, { noWrite: true });
+      two(0x35, 'DIV', 13, (a, b, c) => { c._divPair(a, b, false); }, { noWrite: true });
+      two(0x36, 'IDIV', 13, (a, b, c) => { c._divPair(a, b, true); }, { noWrite: true });
+
+      /* ---------------- control flow ---------------- */
+      // Relative branches: target = IP(after imm32) + disp32.
+      const branch = (op, mnemonic, cond) => {
+        def(op, mnemonic, 1, (c) => {
+          const disp = c.fetch32() | 0;
+          if (cond(c)) { c.IP = (c.IP + disp) >>> 0; c.addCycles(2); }  // taken adds pipeline refill -> 3 total
+        });
+      };
+      branch(0x40, 'JMP', () => true);
+      branch(0x41, 'JZ',  (c) => c.getFlag(FLAG.ZF));
+      branch(0x42, 'JNZ', (c) => !c.getFlag(FLAG.ZF));
+      branch(0x43, 'JC',  (c) => c.getFlag(FLAG.CF));
+      branch(0x44, 'JNC', (c) => !c.getFlag(FLAG.CF));
+      branch(0x45, 'JG',  (c) => !c.getFlag(FLAG.ZF) && (c.getFlag(FLAG.SF) === c.getFlag(FLAG.OF)));
+      branch(0x46, 'JL',  (c) => c.getFlag(FLAG.SF) !== c.getFlag(FLAG.OF));
+      branch(0x47, 'JGE', (c) => c.getFlag(FLAG.SF) === c.getFlag(FLAG.OF));
+      branch(0x48, 'JLE', (c) => c.getFlag(FLAG.ZF) || (c.getFlag(FLAG.SF) !== c.getFlag(FLAG.OF)));
+      branch(0x49, 'JO',  (c) => c.getFlag(FLAG.OF));
+      branch(0x4A, 'JNO', (c) => !c.getFlag(FLAG.OF));
+      branch(0x4B, 'JS',  (c) => c.getFlag(FLAG.SF));
+      branch(0x4C, 'JNS', (c) => !c.getFlag(FLAG.SF));
+      def(0x4D, 'CALL', 5, (c) => { const disp = c.fetch32() | 0; c.push32(c.IP); c.IP = (c.IP + disp) >>> 0; });
+      def(0x4E, 'LOOP', 3, (c) => {                         // LOOP uses R7 as the count register
+        const disp = c.fetch32() | 0; c.R[7] = (c.R[7] - 1) >>> 0;
+        if (c.R[7] !== 0) { c.IP = (c.IP + disp) >>> 0; c.addCycles(1); }
+      });
+
+      /* ---------------- I/O ---------------- */
+      def(0x50, 'IN',  4, (c) => { const r = c.fetch8() & 7; const p = c.fetch16(); c.R[r] = c.bus.ioRead(p) >>> 0; });
+      def(0x51, 'OUT', 4, (c) => { const p = c.fetch16(); const r = c.fetch8() & 7; c.bus.ioWrite(p, c.R[r]); });
+
+      /* ---------------- interrupts ---------------- */
+      def(0x60, 'INT', 12, (c) => { const v = c.fetch8(); c._vector(v, false, 'INT ' + v); });
+
+      /* ---------------- explicit FPU-class trap (spec §7 #NM) ---------------- */
+      // A representative "FPU" opcode slot: attempting it on this FPU-less part
+      // raises device-not-available, exactly as a soft-float stub would expect.
+      def(0x70, 'FPUOP', 1, () => { throw new Fault(VEC.NM, 'no FPU present'); });
+
+      return t;
+    }
+
+    _mulPair(m) {
+      // low half -> current reg (written by dispatcher? no—MUL is noWrite), so
+      // we write both halves here explicitly to the pair (reg, (reg+1)&7).
+      // The dispatcher passed reg via closure? We recompute from _curReg.
+      const d = this._curReg; const hi = (d + 1) & 7;
+      this.R[d] = m.lo >>> 0; this.R[hi] = m.hi >>> 0;
+    }
+    _divPair(a, b, signed) {
+      const d = this._curReg; const hi = (d + 1) & 7;
+      if ((b >>> 0) === 0) throw new Fault(VEC.DE, 'divide by zero');
+      const lo = BigInt(a >>> 0), high = BigInt(this.R[hi] >>> 0);
+      let dividend, divisor, q, r;
+      if (!signed) {
+        dividend = (high << 32n) | lo; divisor = BigInt(b >>> 0);
+        q = dividend / divisor; r = dividend % divisor;
+        if (q > 0xFFFFFFFFn) throw new Fault(VEC.DE, 'quotient overflow');
+      } else {
+        const sHigh = BigInt(this.R[hi] | 0);
+        dividend = (sHigh << 32n) | BigInt(a >>> 0); divisor = BigInt(b | 0);
+        q = dividend / divisor; r = dividend % divisor;    // BigInt truncates toward zero
+        if (q > 0x7FFFFFFFn || q < -0x80000000n) throw new Fault(VEC.DE, 'quotient overflow');
+      }
+      this.R[d] = Number(q & 0xFFFFFFFFn) >>> 0;
+      this.R[hi] = Number(r & 0xFFFFFFFFn) >>> 0;
+    }
+  }
+
+  // Patch: the two()/MUL/DIV helpers need reg index. Wrap readModRM path so the
+  // multiply/divide handlers know their destination register. We stash it.
+  const _origReadModRM = CPU.prototype.readModRM;
+  CPU.prototype.readModRM = function () { const m = _origReadModRM.call(this); this._curReg = m.reg; return m; };
+
+  /* ================================================================== *
+   * Assembler — tiny two-pass mnemonic -> opcode-byte translator (spec §8)
+   * ================================================================== */
+  const REG = {}; for (let i = 0; i < 8; i++) REG['R' + i] = i;
+  const SREG_NAME = { IP: SREG.IP, SP: SREG.SP, BP: SREG.BP, FLAGS: SREG.FLAGS, INTM: SREG.INTM, CR0: SREG.CR0 };
+
+  class Assembler {
+    constructor() { this.reset(); }
+    reset() { this.labels = {}; this.bytes = []; this.fixups = []; this.listing = []; }
+
+    static parseNum(tok, labels) {
+      tok = tok.trim();
+      if (tok in (labels || {})) return { val: labels[tok], label: null };
+      if (/^-?0x[0-9a-fA-F]+$/.test(tok)) return { val: parseInt(tok, 16) >>> 0, label: null };
+      if (/^-?\d+$/.test(tok)) return { val: (parseInt(tok, 10)) >>> 0, label: null };
+      if (/^[A-Za-z_.][\w.]*$/.test(tok)) return { val: 0, label: tok };   // forward ref
+      throw new Error('bad number/label: "' + tok + '"');
+    }
+
+    // returns one of:
+    //  {kind:'reg', n}  {kind:'sreg', id}  {kind:'imm', val, label}
+    //  {kind:'mem', base, disp, label}  {kind:'abs', val, label}
+    parseOperand(tok, labels) {
+      tok = tok.trim();
+      const up = tok.toUpperCase();
+      if (up in REG) return { kind: 'reg', n: REG[up] };
+      if (up in SREG_NAME) return { kind: 'sreg', id: SREG_NAME[up] };
+      if (tok[0] === '[') {
+        const inner = tok.slice(1, tok.indexOf(']')).trim();
+        const mreg = inner.match(/^(R[0-7])\s*([+-]\s*[^\]]+)?$/i);
+        if (mreg) {
+          const base = REG[mreg[1].toUpperCase()];
+          let disp = 0, label = null;
+          if (mreg[2]) {
+            const sign = mreg[2].trim()[0] === '-' ? -1 : 1;
+            const rest = mreg[2].trim().slice(1).trim();
+            const p = Assembler.parseNum(rest, labels);
+            if (p.label) label = p.label; else disp = sign * (p.val | 0);
+          }
+          return { kind: 'mem', base, disp, label };
+        }
+        const p = Assembler.parseNum(inner, labels);       // [abs] or [label]
+        return { kind: 'abs', val: p.val, label: p.label };
+      }
+      const p = Assembler.parseNum(tok, labels);
+      return { kind: 'imm', val: p.val, label: p.label };
+    }
+
+    // split "OP a, b" honoring [..] which may contain nothing tricky here
+    static splitOperands(s) {
+      if (!s.trim()) return [];
+      return s.split(',').map((x) => x.trim()).filter((x) => x.length);
+    }
+
+    emit8(v) { this.bytes.push(v & 0xFF); }
+    emit32(v) { v >>>= 0; this.bytes.push(v & 0xFF, (v >>> 8) & 0xFF, (v >>> 16) & 0xFF, (v >>> 24) & 0xFF); }
+    emitModRM(mode, reg, rm) { this.emit8(((mode & 3) << 6) | ((reg & 7) << 3) | (rm & 7)); }
+    // record a spot to patch a 32-bit value once labels are known
+    fixup(label, pos, rel) { this.fixups.push({ label, pos, rel, from: rel ? pos + 4 : 0 }); }
+
+    // Encode the "dest reg, src operand" family (ALU + MOV load form).
+    encodeRegSrc(op, dst, src) {
+      this.emit8(op);
+      if (src.kind === 'reg')  { this.emitModRM(0, dst.n, src.n); return; }
+      if (src.kind === 'imm')  { this.emitModRM(3, dst.n, 0); this._imm32(src); return; }
+      if (src.kind === 'mem')  {
+        const useD32 = src.label || src.disp > 127 || src.disp < -128;
+        this.emitModRM(useD32 ? 2 : 1, dst.n, src.base);
+        if (useD32) { const pos = this.bytes.length; if (src.label) this.fixup(src.label, pos, false); this.emit32(src.disp >>> 0); }
+        else this.emit8(src.disp & 0xFF);
+        return;
+      }
+      throw new Error('unsupported source operand');
+    }
+    _imm32(op) { const pos = this.bytes.length; if (op.label) this.fixup(op.label, pos, false); this.emit32(op.val >>> 0); }
+
+    assemble(source, loadAddr) {
+      this.reset();
+      loadAddr = loadAddr >>> 0;
+      this.loadAddr = loadAddr;
+      const lines = source.split(/\r?\n/);
+
+      // ---- PASS 1: strip comments, capture labels with provisional addresses ----
+      const insns = [];
+      let addr = loadAddr;
+      for (let ln = 0; ln < lines.length; ln++) {
+        let line = lines[ln].replace(/;.*$/, '').trim();
+        if (!line) continue;
+        // labels (possibly multiple leading "name:")
+        let m;
+        while ((m = line.match(/^([A-Za-z_.][\w.]*)\s*:\s*/))) {
+          this.labels[m[1]] = addr;            // provisional; refined in pass 2 sizing
+          line = line.slice(m[0].length).trim();
+        }
+        if (!line) continue;
+        const sp = line.indexOf(' ');
+        const mnem = (sp < 0 ? line : line.slice(0, sp)).toUpperCase();
+        const rest = sp < 0 ? '' : line.slice(sp + 1);
+        const size = this._sizeOf(mnem, rest);
+        insns.push({ ln: ln + 1, mnem, rest, addr });
+        addr += size;
+      }
+
+      // ---- PASS 2: emit, resolving labels ----
+      for (const ins of insns) {
+        const start = this.bytes.length;
+        this._encode(ins);
+        this.listing.push({ line: ins.ln, addr: ins.addr, mnem: ins.mnem, rest: ins.rest,
+          bytes: this.bytes.slice(start) });
+      }
+      // resolve fixups
+      for (const f of this.fixups) {
+        if (!(f.label in this.labels)) throw new Error('undefined label: ' + f.label);
+        const target = this.labels[f.label];
+        let v;
+        if (f.rel) v = (target - (loadAddr + f.from)) >>> 0;    // relative to next-IP
+        else v = target >>> 0;                                  // absolute
+        this.bytes[f.pos]     = v & 0xFF;
+        this.bytes[f.pos + 1] = (v >>> 8) & 0xFF;
+        this.bytes[f.pos + 2] = (v >>> 16) & 0xFF;
+        this.bytes[f.pos + 3] = (v >>> 24) & 0xFF;
+      }
+      return { bytes: Uint8Array.from(this.bytes), labels: this.labels, listing: this.listing, loadAddr };
+    }
+
+    // compute encoded size without emitting (labels not needed for size except mem)
+    _sizeOf(mnem, rest) {
+      const ops = Assembler.splitOperands(rest);
+      const NOARG = ['NOP','HLT','CLC','STC','CMC','CLI','STI','PUSHF','POPF','IRET','RET','LEAVE'];
+      if (NOARG.includes(mnem)) return 1;
+      if (['PUSH','POP','INC','DEC','NOT'].includes(mnem)) return 2;    // opcode + regbyte
+      if (mnem === 'ENTER') return 5;                                  // opcode + imm32
+      if (mnem === 'INT') return 2;                                    // opcode + imm8
+      if (['JMP','JZ','JNZ','JC','JNC','JG','JL','JGE','JLE','JO','JNO','JS','JNS','CALL','LOOP'].includes(mnem)) return 5;
+      if (mnem === 'IN')  return 4;   // op + regbyte + port16
+      if (mnem === 'OUT') return 4;   // op + port16 + regbyte
+      if (mnem === 'FPUOP') return 1;
+      // MOV / ALU family — depends on operands
+      if (mnem === 'MOV') return this._sizeMov(ops);
+      if (['ADD','ADC','SUB','SBB','CMP','AND','OR','XOR','TEST','SHL','SHR','SAR','ROL','ROR','MUL','IMUL','DIV','IDIV'].includes(mnem))
+        return this._sizeRegSrc(ops);
+      if (['LEA'].includes(mnem)) return this._sizeMem(ops[1]);   // opcode+modrm(+disp)
+      if (mnem === 'XCHG') return 2;
+      throw new Error('unknown mnemonic "' + mnem + '"');
+    }
+    _memSize(opStr) {
+      // returns bytes for modrm memory operand disp: mode1 -> 1, mode2 -> 4
+      const o = this.parseOperand(opStr, this.labels);
+      if (o.kind !== 'mem') return 0;
+      const d32 = o.label || o.disp > 127 || o.disp < -128;
+      return d32 ? 4 : 1;
+    }
+    _sizeMem(opStr) { return 1 + 1 + this._memSize(opStr); } // opcode + modrm + disp
+    _sizeRegSrc(ops) {
+      const src = this.parseOperand(ops[1], this.labels);
+      if (src.kind === 'reg') return 2;                 // opcode + modrm
+      if (src.kind === 'imm') return 6;                 // opcode + modrm + imm32
+      if (src.kind === 'mem') return 2 + (src.label || src.disp > 127 || src.disp < -128 ? 4 : 1);
+      throw new Error('bad ALU source');
+    }
+    _sizeMov(ops) {
+      const dst = this.parseOperand(ops[0], this.labels);
+      const src = this.parseOperand(ops[1], this.labels);
+      if (dst.kind === 'reg' && src.kind === 'sreg') return 3;   // 0x16 op+r+s
+      if (dst.kind === 'sreg' && src.kind === 'reg') return 3;   // 0x17
+      if (dst.kind === 'reg' && src.kind === 'abs') return 6;    // 0x1A op+reg+imm32
+      if (dst.kind === 'abs' && src.kind === 'reg') return 6;    // 0x1B op+imm32+reg
+      if (dst.kind === 'reg') return this._sizeRegSrc(ops);      // 0x10 reg,(r|imm|mem)
+      if (dst.kind === 'mem') return 2 + (dst.label || dst.disp > 127 || dst.disp < -128 ? 4 : 1); // 0x11
+      if (dst.kind === 'sreg') throw new Error('cannot MOV an immediate/memory into a special register (' +
+        ops[0] + '); load a GPR first, e.g. "MOV R0, ' + ops[1] + '" then "MOV ' + ops[0] + ', R0"');
+      throw new Error('bad MOV form: ' + ops.join(', '));
+    }
+
+    _encode(ins) {
+      const { mnem, rest } = ins;
+      const ops = Assembler.splitOperands(rest);
+      const P = (i) => this.parseOperand(ops[i], this.labels);
+      const simple = {
+        NOP:0x00,HLT:0x01,CLC:0x02,STC:0x03,CMC:0x04,CLI:0x05,STI:0x06,
+        PUSHF:0x07,POPF:0x08,IRET:0x09,RET:0x0A,LEAVE:0x0B,FPUOP:0x70,
+      };
+      if (mnem in simple) { this.emit8(simple[mnem]); return; }
+
+      const regOnly = { PUSH:0x14, POP:0x15, INC:0x30, DEC:0x31, NOT:0x32 };
+      if (mnem in regOnly) { this.emit8(regOnly[mnem]); this.emit8(P(0).n & 7); return; }
+
+      if (mnem === 'ENTER') { this.emit8(0x18); this._imm32(P(0)); return; }
+      if (mnem === 'INT')   { this.emit8(0x60); this.emit8(P(0).val & 0xFF); return; }
+
+      const branchOp = { JMP:0x40,JZ:0x41,JNZ:0x42,JC:0x43,JNC:0x44,JG:0x45,JL:0x46,
+        JGE:0x47,JLE:0x48,JO:0x49,JNO:0x4A,JS:0x4B,JNS:0x4C,CALL:0x4D,LOOP:0x4E };
+      if (mnem in branchOp) {
+        // Branches are PC-relative: the encoded field is (target - nextIP).
+        // Because this is a two-pass assembler, every label address is already
+        // known by pass 2, so we compute the displacement directly rather than
+        // deferring to a fixup (a raw label would otherwise look like an
+        // absolute immediate). A numeric operand is treated as an absolute
+        // target address for convenience.
+        this.emit8(branchOp[mnem]);
+        const o = P(0);
+        const nextIP = (this.loadAddr + this.bytes.length + 4) >>> 0;  // IP after disp32
+        const target = o.val >>> 0;
+        this.emit32((target - nextIP) >>> 0);
+        return;
+      }
+
+      if (mnem === 'IN')  { this.emit8(0x50); this.emit8(P(0).n & 7); const p = P(1); this.emit8(p.val & 0xFF); this.emit8((p.val >>> 8) & 0xFF); return; }
+      if (mnem === 'OUT') { this.emit8(0x51); const p = P(0); this.emit8(p.val & 0xFF); this.emit8((p.val >>> 8) & 0xFF); this.emit8(P(1).n & 7); return; }
+
+      if (mnem === 'LEA') { this.emit8(0x12); const d = P(0), s = P(1);
+        const d32 = s.label || s.disp > 127 || s.disp < -128; this.emitModRM(d32 ? 2 : 1, d.n, s.base);
+        if (d32) { const pos = this.bytes.length; if (s.label) this.fixup(s.label, pos, false); this.emit32(s.disp >>> 0); } else this.emit8(s.disp & 0xFF);
+        return; }
+      if (mnem === 'XCHG') { this.emit8(0x13); const d = P(0), s = P(1); this.emitModRM(0, d.n, s.n); return; }
+
+      const alu = { ADD:0x20,ADC:0x21,SUB:0x22,SBB:0x23,CMP:0x24,AND:0x25,OR:0x26,XOR:0x27,
+        TEST:0x28,SHL:0x29,SHR:0x2A,SAR:0x2B,ROL:0x2C,ROR:0x2D,MUL:0x33,IMUL:0x34,DIV:0x35,IDIV:0x36 };
+      if (mnem in alu) { this.encodeRegSrc(alu[mnem], P(0), P(1)); return; }
+
+      if (mnem === 'MOV') {
+        const dst = P(0), src = P(1);
+        if (dst.kind === 'reg' && src.kind === 'sreg') { this.emit8(0x16); this.emit8(dst.n & 7); this.emit8(src.id & 7); return; }
+        if (dst.kind === 'sreg' && src.kind === 'reg') { this.emit8(0x17); this.emit8(dst.id & 7); this.emit8(src.n & 7); return; }
+        if (dst.kind === 'reg' && src.kind === 'abs')  { this.emit8(0x1A); this.emit8(dst.n & 7); this._imm32(src); return; }
+        if (dst.kind === 'abs' && src.kind === 'reg')  { this.emit8(0x1B); this._imm32(dst); this.emit8(src.n & 7); return; }
+        if (dst.kind === 'reg')                        { this.encodeRegSrc(0x10, dst, src); return; }
+        if (dst.kind === 'mem') {                      // MOV [r+d], r  -> 0x11
+          this.emit8(0x11); const d32 = dst.label || dst.disp > 127 || dst.disp < -128;
+          this.emitModRM(d32 ? 2 : 1, src.n, dst.base);
+          if (d32) { const pos = this.bytes.length; if (dst.label) this.fixup(dst.label, pos, false); this.emit32(dst.disp >>> 0); } else this.emit8(dst.disp & 0xFF);
+          return;
+        }
+        throw new Error('unsupported MOV: ' + rest);
+      }
+      throw new Error('cannot encode: ' + mnem + ' ' + rest);
+    }
+  }
+
+  /* ================================================================== *
+   * Public surface
+   * ================================================================== */
+  const VULP33 = { FLAG, CR0, VEC, IRQ_BASE, IVT_BASE, IVT_ENTRIES, SREG, Fault, Cache, Bus, ALU, CPU, Assembler };
+  if (typeof module !== 'undefined' && module.exports) module.exports = VULP33;
+  root.VULP33 = VULP33;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+</script>
+<!-- ===================== DIAGNOSTIC BENCH (disposable) ======================= -->
+<script>/* =============================================================================
+ *  VULP-33  DIAGNOSTIC BENCH  — front-end / benchmarking layer
+ * -----------------------------------------------------------------------------
+ *  EVERYTHING BELOW THIS BANNER IS DISPOSABLE.  It is the instrument panel and
+ *  demo peripherals wrapped around the core. To transplant the CPU into another
+ *  project, keep the VULP33 core object (Bus/CPU/Assembler) and delete this
+ *  file. The core has zero knowledge that any of this exists.
+ * ===========================================================================*/
+(function () {
+  'use strict';
+  const { Bus, CPU, Assembler, FLAG, CR0, VEC } = window.VULP33;
+
+  const LOAD_ADDR = 0x1000;   // where programs are loaded / reset entry point
+  const STACK_TOP = 0x8000;   // initial SP
+
+  /* ---- peripherals ------------------------------------------------------- */
+  // Port 0x01: console TTY — write low byte as a character.
+  // Port 0x02: tick-status  — read returns serviced-tick count (low byte).
+  // Port 0x10: a deliberately SLOW device that inserts 8 wait states per access,
+  //            so IN/OUT to it visibly stalls the core (proves wait states work).
+  function installDevices(bus, m) {
+    bus.mapPort(0x01, {
+      write: (p, v) => { m.ttyPush(String.fromCharCode(v & 0xFF)); },
+      read:  () => 0xFFFFFFFF,
+    });
+    bus.mapPort(0x02, { read: () => m.timerTicks & 0xFF });
+    bus.mapPort(0x10, {
+      read:  (p, b) => { b.insertWaitStates(8); return 0x5A; },
+      write: (p, v, b) => { b.insertWaitStates(8); },
+    });
+  }
+
+  /* ---- the machine (bus + cpu + timer + frame loop) ---------------------- */
+  const m = {
+    bus: null, cpu: null, asm: null,
+    running: false,
+    speed: 50000,            // cycles per frame for the FIXED speed modes
+    speedMode: 'fixed',      // 'fixed' | 'rt' (wall-clock 33 MHz) | 'max' (unthrottled)
+    timerPeriod: 400000,     // core cycles between timer IRQ0 assertions
+    timerAcc: 0,
+    timerTicks: 0,
+    tty: '',
+    listing: [],
+    lastImage: null,
+    // effective-clock measurement (rolling window over wall time)
+    effHz: 0,
+    _emCyc: 0, _emWall: 0, _lastTs: 0,
+
+    init() {
+      this.bus = new Bus({ ramSize: 0x2000000, cacheSize: 2048, lineBytes: 16 });
+      this.cpu = new CPU(this.bus);
+      this.asm = new Assembler();
+      this.cpu.log = (msg, kind) => this.logMsg(msg, kind);
+      installDevices(this.bus, this);
+    },
+
+    ttyPush(s) {
+      this.tty += s;
+      if (this.tty.length > 4000) this.tty = this.tty.slice(-3000);
+    },
+
+    logMsg(msg, kind) {
+      const el = document.getElementById('log');
+      const line = document.createElement('div');
+      line.className = 'log-' + (kind || 'info');
+      const t = (this.cpu ? this.cpu.totalCycles : 0).toString().padStart(9, ' ');
+      line.textContent = '[' + t + '] ' + msg;
+      el.appendChild(line);
+      while (el.childNodes.length > 200) el.removeChild(el.firstChild);
+      el.scrollTop = el.scrollHeight;
+    },
+
+    assembleAndLoad(src) {
+      let out;
+      try {
+        out = this.asm.assemble(src, LOAD_ADDR);
+      } catch (e) {
+        this.logMsg('ASSEMBLE ERROR: ' + e.message, 'fault');
+        return false;
+      }
+      this.bus.reset();
+      installDevices(this.bus, this);   // re-map ports after a bus reset
+      for (let i = 0; i < out.bytes.length; i++) this.bus.poke8(LOAD_ADDR + i, out.bytes[i]);
+      this.cpu.reset(LOAD_ADDR);
+      this.cpu.SP = STACK_TOP;
+      this.cpu.kernelFloor = parseInt(document.getElementById('floor').value, 16) >>> 0 || 0;
+      this.timerAcc = 0; this.timerTicks = 0; this.tty = '';
+      this.listing = out.listing; this.lastImage = out;
+      this.logMsg('loaded ' + out.bytes.length + ' bytes @ 0x' + LOAD_ADDR.toString(16) +
+        ', entry 0x' + LOAD_ADDR.toString(16), 'ok');
+      renderDisasm();
+      return true;
+    },
+
+    stepOnce() {
+      if (this.cpu.faulted) { this.logMsg('core is in fault-halt; reset to continue', 'fault'); return; }
+      const before = this.cpu.totalCycles;
+      this.cpu.step();
+      this.advanceTimer(this.cpu.totalCycles - before);
+    },
+
+    advanceTimer(cycles) {
+      this.timerAcc += cycles;
+      while (this.timerAcc >= this.timerPeriod) {
+        this.timerAcc -= this.timerPeriod;
+        this.bus.raiseIRQ(0);
+        this.timerTicks++;
+      }
+    },
+
+    // one animation frame's worth of execution against the cycle budget.
+    // `ts` is the requestAnimationFrame timestamp (ms); we use it both to pace
+    // real-time mode to the wall clock and to measure the effective clock rate.
+    frame(ts) {
+      const dtMs = (this._lastTs && ts) ? Math.min(ts - this._lastTs, 250) : 16.7;
+      this._lastTs = ts || 0;
+
+      if (this.running && !this.cpu.faulted) {
+        // choose this frame's cycle budget by mode
+        let budget;
+        if (this.speedMode === 'rt') {
+          // pace to the wall clock: run exactly the cycles 33 MHz would in dtMs,
+          // capped so a long stall can't make us sprint (<= 50 ms of catch-up)
+          budget = Math.min((dtMs / 1000) * 33_000_000, 33_000_000 / 20) | 0;
+        } else if (this.speedMode === 'max') {
+          budget = 8_000_000;               // as many as we can, safety-valved below
+        } else {
+          budget = this.speed;              // fixed cyc/frame
+        }
+        const startCyc = this.cpu.totalCycles;
+        let guard = 0;
+        while (budget > 0 && !this.cpu.faulted) {
+          if (this.cpu.halted) {
+            // A halted core is still clocking (a real 486 keeps ticking in HLT
+            // waiting for an interrupt). Rather than spin one idle cycle at a
+            // time, fast-forward straight to the next timer tick — the thing
+            // that will wake it — then let the core service that IRQ. Behaviour
+            // is identical to the core's own idle path, just without the churn.
+            const toNext = this.timerPeriod - this.timerAcc;
+            const jump = Math.min(toNext, budget);
+            this.cpu.totalCycles += jump;     // idle clock advances
+            budget -= jump;
+            this.advanceTimer(jump);          // raises IRQ0 when the period is hit
+            if (jump >= toNext) {             // a tick fired: wake + service it
+              const before = this.cpu.totalCycles;
+              this.cpu.step();
+              budget -= (this.cpu.totalCycles - before);
+            }
+            if (++guard > 12_000_000) break;
+            continue;
+          }
+          const before = this.cpu.totalCycles;
+          this.cpu.step();
+          const c = this.cpu.totalCycles - before;
+          budget -= c;
+          this.advanceTimer(c);
+          if (++guard > 12_000_000) break;   // hard safety valve per frame
+        }
+        // fold this frame into the rolling effective-clock window
+        this._emCyc += (this.cpu.totalCycles - startCyc);
+        this._emWall += dtMs;
+        if (this._emWall >= 200) {           // recompute ~5x/sec
+          this.effHz = (this._emCyc / (this._emWall / 1000));
+          this._emCyc = 0; this._emWall = 0;
+        }
+      } else {
+        // not executing: the effective clock decays to zero, honestly
+        this._emWall += dtMs;
+        if (this._emWall >= 200) { this.effHz = 0; this._emCyc = 0; this._emWall = 0; }
+      }
+    },
+  };
+
+  /* ---- default demo program --------------------------------------------- */
+  const DEMO = `; ==================================================================
+;  VULP-33  power-on demo  —  exercises every subsystem
+; ==================================================================
+          MOV   R0, 1
+          MOV   CR0, R0          ; CR0.0 = 1  -> enable on-die cache
+          MOV   R0, 0x8000       ; (control regs take a GPR, not an immediate,
+          MOV   SP, R0           ;  matching real 386/486-class parts)
+          MOV   R0, 0xFF
+          MOV   INTM, R0         ; unmask all 8 IRQ lines
+
+          MOV   R0, timer_isr    ; install timer handler:
+          MOV   [0x20], R0       ;   IRQ0 -> vector 8 -> IVT[8] @ 0x20
+          STI                    ; FLAGS.IF = 1  -> interrupts on
+
+; ---- triangular sum 1..10 -> R1 (== 55) ----
+          MOV   R1, 0
+          MOV   R2, 10
+sum:      ADD   R1, R2
+          DEC   R2
+          JNZ   sum
+
+; ---- 32-bit multiply (variable latency): 60000 * 60000 ----
+          MOV   R3, 60000
+          MOV   R4, 60000
+          MUL   R3, R4           ; R4:R3 = 3,600,000,000
+
+; ---- 64/32 divide: 1,000,000 / 7 ----
+          MOV   R5, 1000000      ; dividend low  (R6:R5)
+          MOV   R6, 0            ; dividend high
+          MOV   R0, 7
+          DIV   R5, R0           ; R5 = quotient, R6 = remainder
+
+; ---- print "VULP-33" to the console port ----
+          MOV   R0, 86           ; 'V'
+          OUT   1, R0
+          MOV   R0, 85           ; 'U'
+          OUT   1, R0
+          MOV   R0, 76           ; 'L'
+          OUT   1, R0
+          MOV   R0, 80           ; 'P'
+          OUT   1, R0
+          MOV   R0, 45           ; '-'
+          OUT   1, R0
+          MOV   R0, 51           ; '3'
+          OUT   1, R0
+          MOV   R0, 51           ; '3'
+          OUT   1, R0
+          MOV   R0, 10           ; newline
+          OUT   1, R0
+
+; ---- idle: HLT until the timer wakes us, forever ----
+idle:     HLT
+          JMP   idle
+
+; ---- timer interrupt service routine ----
+;      counts ticks at [0x600] and echoes '.' each tick
+timer_isr:
+          PUSH  R0
+          MOV   R0, [0x600]
+          INC   R0
+          MOV   [0x600], R0
+          MOV   R0, 46           ; '.'
+          OUT   1, R0
+          POP   R0
+          IRET
+`;
+
+  /* ---- disassembler for the loaded image (from the assembler listing) ---- */
+  function renderDisasm() {
+    const el = document.getElementById('disasm');
+    el.innerHTML = '';
+    for (const ln of m.listing) {
+      const row = document.createElement('div');
+      row.className = 'dis-row';
+      row.dataset.addr = ln.addr;
+      const bytes = ln.bytes.map((b) => b.toString(16).padStart(2, '0')).join(' ');
+      row.innerHTML =
+        '<span class="dis-addr">' + hex32(ln.addr) + '</span>' +
+        '<span class="dis-bytes">' + bytes.padEnd(20, ' ') + '</span>' +
+        '<span class="dis-mnem">' + ln.mnem + ' ' + escapeHtml(ln.rest) + '</span>';
+      el.appendChild(row);
+    }
+  }
+
+  /* ---- UI rendering ------------------------------------------------------ */
+  const hex32 = (v) => (v >>> 0).toString(16).toUpperCase().padStart(8, '0');
+  const hex8  = (v) => (v & 0xFF).toString(16).toUpperCase().padStart(2, '0');
+  const escapeHtml = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+  let hexBase = 0x1000;
+
+  function buildStaticUI() {
+    // register rows
+    const regBox = document.getElementById('regs');
+    for (let i = 0; i < 8; i++) {
+      const row = document.createElement('div');
+      row.className = 'reg-row';
+      row.innerHTML =
+        '<span class="reg-name">R' + i + '</span>' +
+        '<span class="reg-hex" id="r' + i + '">00000000</span>' +
+        '<span class="reg-dec" id="r' + i + 'd">0</span>';
+      regBox.appendChild(row);
+    }
+    ['IP', 'SP', 'BP'].forEach((n) => {
+      const row = document.createElement('div');
+      row.className = 'reg-row special';
+      row.innerHTML =
+        '<span class="reg-name">' + n + '</span>' +
+        '<span class="reg-hex" id="sp_' + n + '">00000000</span>' +
+        '<span class="reg-dec"></span>';
+      regBox.appendChild(row);
+    });
+
+    // flag LEDs
+    const flagBox = document.getElementById('flags');
+    ['CF', 'PF', 'ZF', 'SF', 'OF', 'IF', 'TF', 'DF', 'HF'].forEach((f) => {
+      const d = document.createElement('div');
+      d.className = 'led'; d.id = 'flag_' + f;
+      d.innerHTML = '<span class="led-dot"></span><span class="led-lbl">' + f + '</span>';
+      flagBox.appendChild(d);
+    });
+
+    // IRQ raise buttons
+    const irqBox = document.getElementById('irqbtns');
+    for (let i = 0; i < 8; i++) {
+      const b = document.createElement('button');
+      b.className = 'irqbtn'; b.textContent = 'IRQ' + i;
+      b.onclick = () => { m.bus.raiseIRQ(i); m.logMsg('manual IRQ' + i + ' asserted', 'irq'); };
+      irqBox.appendChild(b);
+    }
+  }
+
+  function update() {
+    const cpu = m.cpu, bus = m.bus;
+
+    // registers
+    for (let i = 0; i < 8; i++) {
+      const h = document.getElementById('r' + i);
+      const nv = hex32(cpu.R[i]);
+      if (h.textContent !== nv) { h.textContent = nv; h.classList.add('changed'); setTimeout(() => h.classList.remove('changed'), 250); }
+      document.getElementById('r' + i + 'd').textContent = (cpu.R[i] | 0);
+    }
+    document.getElementById('sp_IP').textContent = hex32(cpu.IP);
+    document.getElementById('sp_SP').textContent = hex32(cpu.SP);
+    document.getElementById('sp_BP').textContent = hex32(cpu.BP);
+
+    // flags
+    ['CF', 'PF', 'ZF', 'SF', 'OF', 'IF', 'TF', 'DF', 'HF'].forEach((f) => {
+      document.getElementById('flag_' + f).classList.toggle('on', !!cpu.getFlag(FLAG[f]));
+    });
+
+    // special regs
+    document.getElementById('intm').textContent = hex8(cpu.INTM);
+    document.getElementById('cr0').textContent = hex32(cpu.CR0v);
+    document.getElementById('cr0_cache').classList.toggle('on', !!((cpu.CR0v >>> CR0.CACHE_EN) & 1));
+    document.getElementById('cr0_wait').classList.toggle('on', !!((cpu.CR0v >>> CR0.WAITSTATE_OVR) & 1));
+    document.getElementById('cr0_halt').classList.toggle('on', !!((cpu.CR0v >>> CR0.HALT_ON_FAULT) & 1));
+
+    // pipeline stage
+    ['fetch', 'decode', 'execute'].forEach((s) => {
+      document.getElementById('stage_' + s).classList.toggle('on', cpu.stage === s);
+    });
+    document.getElementById('cpustate').textContent =
+      cpu.faulted ? 'FAULT-HALT' : cpu.halted ? 'HALTED' : m.running ? 'RUNNING' : 'STOPPED';
+    // keep the .badge styling (border/pad) AND layer the state colour on top
+    document.getElementById('cpustate').className = 'badge state ' +
+      (cpu.faulted ? 'st-fault' : cpu.halted ? 'st-halt' : m.running ? 'st-run' : 'st-stop');
+    document.getElementById('lastop').textContent = cpu.lastMnemonic || '—';
+
+    // clock / cycle gauge
+    const cyc = cpu.totalCycles;
+    document.getElementById('cycles').textContent = cyc.toLocaleString();
+    document.getElementById('instrs').textContent = cpu.instrCount.toLocaleString();
+    const simSec = cyc / 33_000_000;
+    document.getElementById('simtime').textContent = simSec < 1
+      ? (simSec * 1000).toFixed(3) + ' ms' : simSec.toFixed(4) + ' s';
+    const cpi = cpu.instrCount ? (cyc / cpu.instrCount) : 0;
+    document.getElementById('cpi').textContent = cpi.toFixed(2);
+
+    // effective (achieved) clock — the honest proof of how fast it's really running
+    const effMHz = m.effHz / 1e6;
+    document.getElementById('effmhz').innerHTML = effMHz.toFixed(1) + '<small> MHz</small>';
+    const effBar = document.getElementById('effBar');
+    effBar.style.width = Math.min(100, (effMHz / 33) * 100) + '%';
+    document.getElementById('effBarWrap').classList.toggle('hot', effMHz > 34);
+    const target = m.speedMode === 'rt' ? '33.0 MHz (wall-clock)'
+                 : m.speedMode === 'max' ? 'unthrottled'
+                 : (m.speed / 1e6 * 60).toFixed(1) + ' MHz @60fps';
+    document.getElementById('clkrate').innerHTML =
+      'target ' + target + ' · achieving <b>' + effMHz.toFixed(1) + ' MHz</b>';
+
+    // cache stats
+    const ch = bus.cache;
+    const tot = ch.hits + ch.misses;
+    const rate = tot ? (ch.hits / tot) : 0;
+    document.getElementById('cache_h').textContent = ch.hits.toLocaleString();
+    document.getElementById('cache_m').textContent = ch.misses.toLocaleString();
+    document.getElementById('cache_r').textContent = tot ? (rate * 100).toFixed(1) + '%' : '—';
+    document.getElementById('cacheBar').style.width = (rate * 100) + '%';
+    document.getElementById('ticks').textContent = m.timerTicks.toLocaleString();
+
+    // live button states (reflect what's actually possible right now)
+    const faulted = cpu.faulted;
+    document.getElementById('btnRun').disabled   = m.running || faulted;
+    document.getElementById('btnPause').disabled = !m.running;
+    document.getElementById('btnStep').disabled  = m.running || faulted;
+
+    // tty
+    const tty = document.getElementById('tty');
+    if (tty.textContent !== m.tty) { tty.textContent = m.tty; tty.scrollTop = tty.scrollHeight; }
+
+    // disasm current-line highlight
+    document.querySelectorAll('.dis-row.cur').forEach((r) => r.classList.remove('cur'));
+    const cur = document.querySelector('.dis-row[data-addr="' + cpu.IP + '"]');
+    if (cur) { cur.classList.add('cur'); }
+
+    renderHex();
+  }
+
+  function renderHex() {
+    const box = document.getElementById('hexview');
+    const cpu = m.cpu, bus = m.bus;
+    let html = '';
+    for (let row = 0; row < 16; row++) {
+      const base = (hexBase + row * 16) >>> 0;
+      let bytes = '', ascii = '';
+      for (let col = 0; col < 16; col++) {
+        const a = (base + col) >>> 0;
+        const v = bus.peek8(a);
+        let cls = '';
+        if (a === (cpu.IP >>> 0)) cls = 'hx-ip';
+        else if (a === (cpu.SP >>> 0)) cls = 'hx-sp';
+        bytes += '<span class="' + cls + '">' + hex8(v) + '</span> ';
+        ascii += (v >= 32 && v < 127) ? String.fromCharCode(v) : '.';
+      }
+      html += '<div class="hx-row"><span class="hx-addr">' + hex32(base) + '</span>' +
+        '<span class="hx-bytes">' + bytes + '</span><span class="hx-ascii">' + escapeHtml(ascii) + '</span></div>';
+    }
+    box.innerHTML = html;
+  }
+
+  /* ---- controls ---------------------------------------------------------- */
+  function wireControls() {
+    document.getElementById('btnLoad').onclick = () => {
+      m.running = false;
+      m.assembleAndLoad(document.getElementById('src').value);
+      update();
+    };
+    document.getElementById('btnRun').onclick = () => {
+      if (!m.lastImage) m.assembleAndLoad(document.getElementById('src').value);
+      m.running = true; m.logMsg('run', 'ok');
+    };
+    document.getElementById('btnPause').onclick = () => { m.running = false; m.logMsg('paused', 'info'); };
+    document.getElementById('btnStep').onclick = () => { m.running = false; m.stepOnce(); update(); };
+    document.getElementById('btnReset').onclick = () => {
+      m.running = false;
+      if (m.lastImage) { m.assembleAndLoad(document.getElementById('src').value); }
+      m.logMsg('reset', 'info'); update();
+    };
+    document.getElementById('speed').onchange = (e) => {
+      const v = e.target.value;
+      if (v === 'rt') { m.speedMode = 'rt'; }
+      else if (v === 'max') { m.speedMode = 'max'; }
+      else { m.speedMode = 'fixed'; m.speed = parseInt(v, 10); }
+    };
+    document.getElementById('hexaddr').onchange = (e) => {
+      hexBase = (parseInt(e.target.value, 16) >>> 0) & ~0xF; renderHex();
+    };
+    document.getElementById('btnLoadDemo').onclick = () => {
+      document.getElementById('src').value = DEMO;
+    };
+  }
+
+  /* ---- boot -------------------------------------------------------------- */
+  window.addEventListener('DOMContentLoaded', () => {
+    m.init();
+    buildStaticUI();
+    wireControls();
+    document.getElementById('src').value = DEMO;
+    m.assembleAndLoad(DEMO);
+    update();
+    function loop(ts) { m.frame(ts); update(); requestAnimationFrame(loop); }
+    requestAnimationFrame(loop);
+    m.logMsg('VULP-33 diagnostic bench online. 33 MHz, 32 MiB RAM, 2 KiB cache.', 'ok');
+  });
+})();
+</script>
+</body>
+</html>
