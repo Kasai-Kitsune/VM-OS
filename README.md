@@ -4,8 +4,6 @@ A single-file, single-page fake retro OS. Boots like a late-90s VM-BIOS, drops y
 
 No build step, no dependencies, no backend. Open the HTML file in a browser and it runs.
 
-## **The fixed disk's actuator chatter is emulated too, driven off real seek events on the virtual drive rather than a canned loop. If the clicking gets old, click the HD indicator in the taskbar tray (bottom right) to mute it; the amber/red LED keeps reporting drive activity regardless of whether the sound is on.**
-
 ---
 
 ## What it actually is
